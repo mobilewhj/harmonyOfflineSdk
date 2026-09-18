@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- 补充 GitHub 作者网址，修复 OHPM 发布缺少作者联系方式的校验错误。
+- 补充 OHPM 中心仓安装说明；SDK API 和运行逻辑保持一致。
+
 ## 0.1.1
 
 - SDK 包名和 ArkTS import 改为 `com.offline.demo`，与 Android SDK 公开包名一致。

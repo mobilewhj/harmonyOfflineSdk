@@ -1,4 +1,10 @@
-# Validation — 0.1.1
+# Validation — 0.1.2
+
+2026-09-18：0.1.2 补充作者 GitHub URL。清理后重新构建 SDK release HAR 和 Demo HAP 成功，25 项主机测试通过，OHPM prepublish 通过；已提交 OHPM，个人中心显示 `com.offline.demo@0.1.2` 审核中。
+
+本次只调整发布元数据、版本号与文档；下列独立 HAR 消费及真机记录来自 0.1.1，0.1.2 未重复真机验收。
+
+## 0.1.1 验证记录
 
 验证日期：2026-09-18。
 

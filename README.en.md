@@ -8,7 +8,7 @@ Open the root directory in DevEco Studio (validated compiler: 26.0.0.821 / SDK 2
 
 `offlineSdk` is the reusable library; `entry` owns UI, preferences and activation. The demo is intentionally a fixed-version local sample, not a production update manager. Remote ZIP installation is available through `PackageInstaller.install`; configure a trusted URL and expected hash in your own repository. A trusted expected hash must come from authenticated configuration, not from the downloaded file itself.
 
-Download the versioned HAR from [GitHub Releases](https://github.com/mobilewhj/harmonyOfflineSdk/releases) and declare a `file:../libs/com.offline.demo-0.1.1.har` dependency named `com.offline.demo`. OHPM registry publication is pending.
+Download the versioned HAR from [GitHub Releases](https://github.com/mobilewhj/harmonyOfflineSdk/releases) and declare a `file:../libs/com.offline.demo-0.1.2.har` dependency named `com.offline.demo`. Once the OHPM version is approved and available, run `ohpm install com.offline.demo@0.1.2` in the consuming module. Until then, use the local HAR.
 
 Run `./scripts/build.sh` to build the HAR and unsigned sample HAP, or `./scripts/package-release.sh` to collect release files and checksums. Set `DEVECO_HOME` for non-default installations. Host tests: Node >= 22.15, `npm ci && npm test`. They mock Harmony platform boundaries; a successful host test/build is not device acceptance.
 

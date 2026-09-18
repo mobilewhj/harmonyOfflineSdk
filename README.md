@@ -28,12 +28,12 @@ HarmonyOS 的 SDK 名称来自 `offlineSdk/oh-package.json5`；Demo 的 bundleNa
 
 ## 使用发布的 HAR
 
-从 [GitHub Releases](https://github.com/mobilewhj/harmonyOfflineSdk/releases) 下载 `com.offline.demo-0.1.1.har`，放到宿主工程的 `libs/` 中。宿主模块的 `oh-package.json5`：
+从 [GitHub Releases](https://github.com/mobilewhj/harmonyOfflineSdk/releases) 下载 `com.offline.demo-0.1.2.har`，放到宿主工程的 `libs/` 中。宿主模块的 `oh-package.json5`：
 
 ```json5
 {
   "dependencies": {
-    "com.offline.demo": "file:../libs/com.offline.demo-0.1.1.har"
+    "com.offline.demo": "file:../libs/com.offline.demo-0.1.2.har"
   }
 }
 ```
@@ -44,7 +44,7 @@ HarmonyOS 的 SDK 名称来自 `offlineSdk/oh-package.json5`；Demo 的 bundleNa
 import { PackageInstaller, ResourceInterceptor, usablePackage } from 'com.offline.demo';
 ```
 
-目前通过 GitHub + HAR 分发，**尚未发布 OHPM 中心仓**，不能直接用中心仓包名安装。与 Android 的 JitPack 不同，这里分发的是 HarmonyOS HAR。
+GitHub HAR 可直接使用。OHPM 中心仓版本通过审核并上架后，可在宿主模块执行 `ohpm install com.offline.demo@0.1.2`；尚未上架时请使用本地 HAR。
 
 ## 构建与测试
 

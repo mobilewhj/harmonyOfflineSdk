@@ -4,7 +4,7 @@ HarmonyOS API 12+，纯 ArkTS HAR。官方 ZIP 解压、SHA-256 校验及 ArkWeb
 
 ## 安装
 
-下载 GitHub Release 的 HAR，在宿主模块声明 `"com.offline.demo": "file:../libs/com.offline.demo-0.1.1.har"`，执行 `ohpm install --all`。目前未上传 OHPM 中心仓。
+下载 GitHub Release 的 HAR，在宿主模块声明 `"com.offline.demo": "file:../libs/com.offline.demo-0.1.2.har"`，执行 `ohpm install --all`。OHPM 版本审核上架后，也可执行 `ohpm install com.offline.demo@0.1.2`；尚未上架时请使用本地 HAR。
 
 ## 主要 API
 
