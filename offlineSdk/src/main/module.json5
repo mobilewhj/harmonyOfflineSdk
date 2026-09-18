@@ -1,0 +1,10 @@
+{
+  "module": {
+    "name": "offlineSdk",
+    "type": "har",
+    "deviceTypes": [
+      "phone",
+      "tablet"
+    ]
+  }
+}

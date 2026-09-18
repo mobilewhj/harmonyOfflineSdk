@@ -1,0 +1,14 @@
+**/build/
+**/.hvigor/
+**/oh_modules/
+node_modules/
+.idea/
+local.properties
+.DS_Store
+dist/
+*.p12
+*.p7b
+*.cer
+*.keystore
+
+**/BuildProfile.ets

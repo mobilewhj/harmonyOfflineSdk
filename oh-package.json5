@@ -1,0 +1,9 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "harmony-offline-sdk-demo",
+  "version": "0.1.0",
+  "description": "Standalone offline SDK and Splash demo",
+  "license": "Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {}
+}

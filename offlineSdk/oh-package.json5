@@ -1,0 +1,15 @@
+{
+  "name": "harmony-offline-sdk",
+  "version": "0.1.0",
+  "description": "HarmonyOS offline ZIP installation and immutable ArkWeb resource mapping",
+  "main": "Index.ets",
+  "author": "mobilewhj",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/mobilewhj/harmonyOfflineSdk",
+  "keywords": [
+    "offline",
+    "arkweb",
+    "zip"
+  ],
+  "dependencies": {}
+}
