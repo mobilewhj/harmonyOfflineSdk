@@ -47,3 +47,9 @@ Demo 使用内置 ZIP 和固定可信 SHA-256。安装、校验、官方解压�
 自动生成的签名配置与密钥属于本机，不要提交到 GitHub。公开 HAR 无需应用签名；其他人运行 Demo 时使用自己的调试签名。
 
 参考：[华为官方自动签名文档](https://developer.huawei.com/consumer/cn/doc/HarmonyOS-Guides/ide-signing-auto)。
+
+## 使用发布的 SDK 运行 Demo
+
+仓库默认依赖 SDK 源码模块，公开依赖名称为 `harmony-offline-sdk`。如要验证 OHPM 发布版本，待其审核上架后，将 `entry/oh-package.json5` 中的 `"harmony-offline-sdk": "file:../offlineSdk"` 改为 `"harmony-offline-sdk": "0.1.3"`，然后 Sync 和 Run。
+
+如果使用 GitHub HAR，则将附件放入根目录 `libs/`，依赖值改为 `"file:../libs/harmony-offline-sdk-0.1.3.har"`。两种接入方式的 import 都是 `harmony-offline-sdk`。SDK 不依赖 Demo 应用。

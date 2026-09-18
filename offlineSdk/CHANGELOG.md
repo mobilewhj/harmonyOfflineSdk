@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3
+
+- SDK 发布包名、依赖名称和 ArkTS import 统一改为 `harmony-offline-sdk`。
+- 原 `com.offline.demo@0.1.2` 用户需移除旧依赖、添加新依赖，并替换 import；API 与运行逻辑不变。
+- Demo 应用 bundleName 保持 `com.offline.demo.sample`，与 SDK 名称独立。
+- 同步 Demo、主机测试、HAR 附件名称及 GitHub / OHPM 接入说明。
+
 ## 0.1.2
 
 - 补充 GitHub 作者网址，修复 OHPM 发布缺少作者联系方式的校验错误。

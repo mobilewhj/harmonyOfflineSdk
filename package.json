@@ -1,6 +1,6 @@
 {
-  "name": "com.offline.demo-validation",
-  "version": "0.1.2",
+  "name": "harmony-offline-sdk-validation",
+  "version": "0.1.3",
   "private": true,
   "scripts": {
     "test": "node --test offlineSdk/tests/*.cjs"

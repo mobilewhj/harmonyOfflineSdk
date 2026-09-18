@@ -1,15 +1,35 @@
-# com.offline.demo
+# harmony-offline-sdk
 
 HarmonyOS API 12+，纯 ArkTS HAR。官方 ZIP 解压、SHA-256 校验及 ArkWeb 本地资源映射。
 
 ## 安装
 
-下载 GitHub Release 的 HAR，在宿主模块声明 `"com.offline.demo": "file:../libs/com.offline.demo-0.1.2.har"`，执行 `ohpm install --all`。OHPM 版本审核上架后，也可执行 `ohpm install com.offline.demo@0.1.2`；尚未上架时请使用本地 HAR。
+OHPM 中心仓审核上架后，在宿主模块（例如 `entry`）目录执行：
+
+```sh
+ohpm install harmony-offline-sdk@0.1.3
+```
+
+对应宿主模块的 `oh-package.json5`：
+
+```json5
+{
+  "dependencies": {
+    "harmony-offline-sdk": "0.1.3"
+  }
+}
+```
+
+OHPM 自动下载 HAR。源码和 Demo 位于 [GitHub](https://github.com/mobilewhj/harmonyOfflineSdk)，[Demo 说明](https://github.com/mobilewhj/harmonyOfflineSdk/blob/main/docs/DEMO.md)。
+
+也可下载 [GitHub v0.1.3](https://github.com/mobilewhj/harmonyOfflineSdk/releases/tag/v0.1.3) 的 HAR，放入宿主工程 `libs/`，将模块依赖设为 `"harmony-offline-sdk": "file:../libs/harmony-offline-sdk-0.1.3.har"` 后执行 `ohpm install --all`。远程依赖与本地 HAR 二选一；审核上架前可使用本地 HAR。
+
+从旧 `com.offline.demo@0.1.2` 迁移时，删除旧依赖并替换 SDK import 为 `harmony-offline-sdk`，不需要改变宿主应用 bundleName。SDK API 保持不变。
 
 ## 主要 API
 
 ```typescript
-import { PackageInstaller, PackageSpec, OfflineProgress, usablePackage } from 'com.offline.demo';
+import { PackageInstaller, PackageSpec, OfflineProgress, usablePackage } from 'harmony-offline-sdk';
 
 const installer = new PackageInstaller();
 // spec: { version: 10000, sha256: '<来自可信配置的64位小写SHA-256>', url: '<HTTPS ZIP URL>' }

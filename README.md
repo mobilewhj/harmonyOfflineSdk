@@ -4,7 +4,7 @@
 
 纯 ArkTS 的 HarmonyOS 离线 ZIP SDK。官方 ZIP 解压 API、SHA-256 校验、TaskPool 后台安装、固定版本的 ArkWeb 资源映射，不依赖第三方解压库或 C++。
 
-- `offlineSdk/`：可独立分发的 HAR，包名 `com.offline.demo`。
+- `offlineSdk/`：可独立分发的 HAR，包名 `harmony-offline-sdk`。
 - `entry/`：可运行的 Splash Demo，页面 → ViewModel → Repository → SDK。
 - `sample-web/`：内置示例网页源码；Demo 首次运行也无需联网。
 
@@ -17,34 +17,63 @@
 
 Demo 保留完成页供检查文案与进度；产品可在 `ready` 后自行导航。检查 [Demo 文档](docs/DEMO.md) 了解缓存和在线接入方式。
 
-## 命名
+## SDK 与 Demo 命名
 
-| 用途 | Android | HarmonyOS |
-| --- | --- | --- |
-| SDK 公开包名 / import | `com.offline.demo` | `com.offline.demo` |
-| Demo 应用包名 | `com.offline.demo.sample` | `com.offline.demo.sample` |
+| 用途 | 名称 |
+| --- | --- |
+| OHPM 包名 / ArkTS import | `harmony-offline-sdk` |
+| HAR 附件 | `harmony-offline-sdk-0.1.3.har` |
+| Demo 应用 bundleName | `com.offline.demo.sample` |
 
-HarmonyOS 的 SDK 名称来自 `offlineSdk/oh-package.json5`；Demo 的 bundleName 来自 `AppScope/app.json5`，两者独立。GitHub 作者仍为 `mobilewhj`。
+SDK 名称来自 `offlineSdk/oh-package.json5`；Demo 应用名来自 `AppScope/app.json5`，两者独立。SDK 不依赖 Demo。
 
-## 使用发布的 HAR
+## OHPM 远程依赖（推荐）
 
-从 [GitHub Releases](https://github.com/mobilewhj/harmonyOfflineSdk/releases) 下载 `com.offline.demo-0.1.2.har`，放到宿主工程的 `libs/` 中。宿主模块的 `oh-package.json5`：
+新包在 OHPM 中心仓审核上架后，在宿主模块（例如 `entry`）目录执行：
+
+```sh
+ohpm install harmony-offline-sdk@0.1.3
+```
+
+也可以在宿主模块的 `oh-package.json5` 中添加依赖，然后执行 `ohpm install --all` / DevEco Sync：
 
 ```json5
 {
   "dependencies": {
-    "com.offline.demo": "file:../libs/com.offline.demo-0.1.2.har"
+    "harmony-offline-sdk": "0.1.3"
   }
 }
 ```
 
-执行 `ohpm install --all` / DevEco Sync，然后导入：
+OHPM 自动下载 HAR，无需复制 SDK 源码或引入 Demo。导入示例：
 
 ```typescript
-import { PackageInstaller, ResourceInterceptor, usablePackage } from 'com.offline.demo';
+import { PackageInstaller, ResourceInterceptor, usablePackage } from 'harmony-offline-sdk';
 ```
 
-GitHub HAR 可直接使用。OHPM 中心仓版本通过审核并上架后，可在宿主模块执行 `ohpm install com.offline.demo@0.1.2`；尚未上架时请使用本地 HAR。
+- [OHPM 包页面](https://ohpm.openharmony.cn/#/cn/detail/harmony-offline-sdk)（审核上架后可用）
+- [SDK API 与资源拦截说明](offlineSdk/README.md)
+- [Splash Demo 使用说明](docs/DEMO.md)
+
+## GitHub HAR 接入
+
+从 [GitHub v0.1.3](https://github.com/mobilewhj/harmonyOfflineSdk/releases/tag/v0.1.3) 下载 `harmony-offline-sdk-0.1.3.har`，放到宿主工程的 `libs/` 中，将宿主模块依赖配置为：
+
+```json5
+{
+  "dependencies": {
+    "harmony-offline-sdk": "file:../libs/harmony-offline-sdk-0.1.3.har"
+  }
+}
+```
+
+执行 `ohpm install --all` / DevEco Sync。远程依赖与本地 HAR 二选一，代码 import 相同。OHPM 尚未上架时可先采用此方式。
+
+## 从旧包迁移
+
+`com.offline.demo@0.1.2` 是历史 SDK 包名。移除模块依赖中的旧包，添加 `harmony-offline-sdk@0.1.3`，将 SDK 的 `from 'com.offline.demo'` 改为 `from 'harmony-offline-sdk'`，然后重新 Sync。不要修改业务应用自身的 bundleName。SDK API 和运行逻辑不变。
+
+仓库内 Demo 默认使用 `"harmony-offline-sdk": "file:../offlineSdk"`，便于联调源码。要验证发布版本，将 `entry/oh-package.json5` 中该值改成 `"0.1.3"` 后 Sync；下载依赖完成后，Demo 的内置离线 ZIP 仍可断网运行。
 
 ## 构建与测试
 

@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { webview } from '@kit.ArkWeb';
 import { fileIo as fs } from '@kit.CoreFileKit';
-import { ResourceInterceptor } from 'com.offline.demo';
+import { ResourceInterceptor } from 'harmony-offline-sdk';
 import { DEMO_ORIGIN } from '../data/DemoConfig';
 import { SplashViewModel } from '../viewmodel/SplashViewModel';
 

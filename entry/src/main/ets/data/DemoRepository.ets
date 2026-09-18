@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { preferences } from '@kit.ArkData';
 import { PackageInstaller, PackageRecord, OfflineProgress, OfflineStage, OfflineError,
-  usablePackage, packageDirectory } from 'com.offline.demo';
+  usablePackage, packageDirectory } from 'harmony-offline-sdk';
 import { DEMO_RECORD } from './DemoConfig';
 
 // Owns app-private paths and activation. The SDK never decides when a host activates a version.

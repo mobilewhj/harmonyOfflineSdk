@@ -8,7 +8,15 @@ Open the root directory in DevEco Studio (validated compiler: 26.0.0.821 / SDK 2
 
 `offlineSdk` is the reusable library; `entry` owns UI, preferences and activation. The demo is intentionally a fixed-version local sample, not a production update manager. Remote ZIP installation is available through `PackageInstaller.install`; configure a trusted URL and expected hash in your own repository. A trusted expected hash must come from authenticated configuration, not from the downloaded file itself.
 
-Download the versioned HAR from [GitHub Releases](https://github.com/mobilewhj/harmonyOfflineSdk/releases) and declare a `file:../libs/com.offline.demo-0.1.2.har` dependency named `com.offline.demo`. Once the OHPM version is approved and available, run `ohpm install com.offline.demo@0.1.2` in the consuming module. Until then, use the local HAR.
+The published SDK package and import name is `harmony-offline-sdk`; the sample application bundle remains `com.offline.demo.sample`.
+
+After OHPM review and listing, run `ohpm install harmony-offline-sdk@0.1.3` in the consuming module, or declare `"harmony-offline-sdk": "0.1.3"` in that module's `oh-package.json5` and sync. OHPM downloads the HAR automatically.
+
+Alternatively download `harmony-offline-sdk-0.1.3.har` from [GitHub v0.1.3](https://github.com/mobilewhj/harmonyOfflineSdk/releases/tag/v0.1.3), and declare `"harmony-offline-sdk": "file:../libs/harmony-offline-sdk-0.1.3.har"`. Use either the registry or the local HAR dependency. Import from `harmony-offline-sdk` in both cases.
+
+Migrating from `com.offline.demo@0.1.2`: remove the old SDK dependency, add the new package and replace SDK imports. Do not change your application's bundle name. APIs and runtime behavior are unchanged.
+
+The repository demo uses `file:../offlineSdk` for source development. To run it against the registry package, change that dependency value in `entry/oh-package.json5` to `0.1.3` and sync after the new package is listed.
 
 Run `./scripts/build.sh` to build the HAR and unsigned sample HAP, or `./scripts/package-release.sh` to collect release files and checksums. Set `DEVECO_HOME` for non-default installations. Host tests: Node >= 22.15, `npm ci && npm test`. They mock Harmony platform boundaries; a successful host test/build is not device acceptance.
 

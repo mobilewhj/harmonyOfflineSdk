@@ -1,4 +1,19 @@
-# Validation — 0.1.2
+# Validation — 0.1.3
+
+2026-09-18：SDK 更名为 `harmony-offline-sdk`，版本 `0.1.3`。
+
+| 检查 | 结果 |
+| --- | --- |
+| SDK release HAR 与源码依赖 Demo | clean 后完整构建通过 |
+| 主机测试 | 25 项通过，启动测试使用新 import 名称 |
+| 独立 HAR 消费工程 | 移除 SDK 源码模块，仅通过 `file:../libs/harmony-offline-sdk-0.1.3.har` 依赖，Demo 完整构建通过 |
+| 包元数据和附件 | 新名称、版本、作者网址正确；未包含签名或密钥文件；已生成 SHA256SUMS |
+| OHPM prepublish / publish | 预检通过，提交成功，返回审核中 |
+| 真机交互 | 本次未重新验收，个人签名仅保留本地 |
+
+SDK 运行逻辑和 API 不变；调整包名、依赖和 import。审核通过前中心仓依赖尚不可用，可先使用 GitHub HAR。
+
+## 0.1.2 验证记录
 
 2026-09-18：0.1.2 补充作者 GitHub URL。清理后重新构建 SDK release HAR 和 Demo HAP 成功，25 项主机测试通过，OHPM prepublish 通过；已提交 OHPM，个人中心显示 `com.offline.demo@0.1.2` 审核中。
 
