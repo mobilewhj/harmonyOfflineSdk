@@ -1,4 +1,10 @@
-# Validation — 0.1.3
+# Validation — 0.1.4
+
+2026-09-18：缓存布局对齐 Android。31 项主机测试通过，包含固定临时路径、root/dist 入口发布、摘要失败重试、取消后清理、历史目录清理、同版本不覆盖及本地 ZIP 输入保护。SDK release HAR、源码 Demo 和无 SDK 源码的独立 HAR 消费工程均 clean/build 成功；OHPM prepublish 通过，publish 已提交审核。0.1.4 尚未重复真机交互验收。
+
+HAR SHA-256：`ad04ea54bc0a74c95d32db41c89017e9e7545c855727b5b2bbe03cae6680c04a`。
+
+## 0.1.3 验证记录
 
 2026-09-18：SDK 更名为 `harmony-offline-sdk`，版本 `0.1.3`。
 

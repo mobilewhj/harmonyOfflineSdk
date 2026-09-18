@@ -16,7 +16,7 @@ export class DemoRepository {
 
   constructor(context: common.UIAbilityContext) {
     this.context = context;
-    this.root = context.filesDir + '/offline-demo/packages';
+    this.root = context.filesDir + '/offline/packages';
   }
 
   async prepare(progress: (value: OfflineProgress) => void, failHash: boolean = false): Promise<string> {
@@ -33,6 +33,8 @@ export class DemoRepository {
       sha256: failHash ? '0'.repeat(64) : DEMO_RECORD.sha256 };
     // Only unbound destinations are removed. Replays use a separate root from the displayed page.
     const destination = packageDirectory(this.root, record);
+    await this.installer.cleanup(this.root, '');
+    this.checkAlive();
     if (fs.accessSync(destination)) { await this.installer.removeUnbound(destination); }
     this.checkAlive();
     const archive = this.context.cacheDir + '/offline-demo.zip';

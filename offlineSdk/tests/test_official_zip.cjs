@@ -227,7 +227,7 @@ test('cancel during official extraction waits, then discards without publication
   await began; cancelled = true; Atomics.store(new Int32Array(signal), 0, 1);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(settled, false);
-  assert.equal(fs.readdirSync(root).some(name => name.startsWith('.install-')), true);
+  assert.deepEqual(fs.readdirSync(root).sort(), ['100000.zip.tmp', '100000_temp']);
   release();
   const result = await installing;
   assert.equal(result.reason, 'CANCELLED');
@@ -257,7 +257,9 @@ test('local install verifies, extracts and publishes without network or modifyin
   const root = path.join(f.root, 'versions');
   const result = await localWorker(f, progress).runInstall(root, spec, false, new SharedArrayBuffer(4), f.zip);
   assert.equal(result.success, true);
-  assert.equal(files.usablePackage(root, spec), result.directory + '/dist');
+  assert.equal(files.usablePackage(root, spec), result.directory);
+  assert.equal(result.directory, path.join(root, '10000'));
+  assert.equal(fs.existsSync(path.join(result.directory, 'dist')), false);
   assert.deepEqual(fs.readFileSync(f.zip), original);
   assert.deepEqual(fs.readdirSync(root), [path.basename(result.directory)]);
   assert.deepEqual(progress.map(x => x.stage), ['preparing', 'verifying', 'extracting', 'saving']);
@@ -275,7 +277,7 @@ test('local install cannot overwrite an already published version', async () => 
   const first = await worker.runInstall(root, spec, false, new SharedArrayBuffer(4), f.zip);
   const second = await worker.runInstall(root, spec, false, new SharedArrayBuffer(4), f.zip);
   assert.equal(first.success, true); assert.equal(second.reason, 'TARGET_EXISTS');
-  assert.equal(fs.readFileSync(first.directory + '/dist/index.html', 'utf8'), 'home');
+  assert.equal(fs.readFileSync(first.directory + '/index.html', 'utf8'), 'home');
 });
 test('cancelled local install and symlink archive do not publish', async () => {
   const f = fixture(benign), spec = localSpec(f), root = path.join(f.root, 'versions');
@@ -317,3 +319,95 @@ test('bundled demo ZIP matches the pinned SHA-256 and contains all referenced as
   assert.deepEqual(inspection.inspectZip(zip, () => {}).map(x => x.name).sort(), ['app.js', 'index.html', 'style.css']);
 });
 test('local installation paths leave no file descriptors open', () => { assert.equal(positions.size, 0); });
+
+function installWorker(f, p, progress = []) {
+  return load('InstallWorker', {
+    '@kit.CoreFileKit': { fileIo: io }, '@kit.BasicServicesKit': {},
+    '@kit.ArkTS': { url: { URL }, taskpool: { Task: { sendData: value => progress.push(value) } } },
+    '@kit.RemoteCommunicationKit': { rcp: {
+      Request: class { constructor(url) { this.url = url; } },
+      createSession: () => ({ close() {}, cancel() {}, async fetch(request) {
+        const bytes = fs.readFileSync(f.zip);
+        request.configuration.tracing.httpEventsHandler.onDataReceive(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length));
+        return { statusCode: 200, headers: {} };
+      } })
+    } },
+    '@kit.CryptoArchitectureKit': { cryptoFramework: { createMd: () => {
+      const hash = crypto.createHash('sha256');
+      return { updateSync: ({ data }) => hash.update(data), digestSync: () => ({ data: hash.digest() }) };
+    } } },
+    './PackageArchive': p.archive, './PackageFiles': files, './OfflineTypes': types
+  });
+}
+function packageSpec(f) {
+  return { version: 100000, sha256: crypto.createHash('sha256').update(fs.readFileSync(f.zip)).digest('hex'), url: 'https://example.com/package.zip' };
+}
+
+test('installation publishes root and dist packages with Android names and removes stale temporary files', async () => {
+  for (const entries of [benign, [{ name: 'index.html', body: 'home' }]]) {
+    const f = fixture(entries), p = platform(f), worker = installWorker(f, p);
+    const root = path.join(f.root, 'versions'); fs.mkdirSync(root);
+    fs.mkdirSync(path.join(root, '100000_temp'));
+    fs.writeFileSync(path.join(root, '100000_temp/stale'), 'old');
+    fs.writeFileSync(path.join(root, '100000.zip.tmp'), 'interrupted download');
+    const result = await worker.runInstall(root, packageSpec(f), false, new SharedArrayBuffer(4));
+    assert.equal(result.success, true);
+    assert.equal(result.directory, path.join(root, '100000'));
+    assert.equal(fs.readFileSync(path.join(result.directory, 'index.html'), 'utf8'), 'home');
+    assert.equal(fs.existsSync(path.join(result.directory, 'dist')), false);
+    assert.equal(fs.existsSync(path.join(result.directory, 'stale')), false);
+    assert.deepEqual(fs.readdirSync(root), ['100000']);
+    assert.equal(files.usablePackage(root, packageSpec(f)), result.directory);
+    const again = await worker.runInstall(root, packageSpec(f), false, new SharedArrayBuffer(4));
+    assert.equal(again.reason, 'TARGET_EXISTS');
+    assert.equal(fs.readFileSync(path.join(result.directory, 'index.html'), 'utf8'), 'home');
+  }
+});
+test('hash failure cleans fixed paths and allows a successful retry', async () => {
+  const f = fixture(benign), p = platform(f), worker = installWorker(f, p);
+  const root = path.join(f.root, 'versions');
+  const bad = await worker.runInstall(root, { ...packageSpec(f), sha256: '0'.repeat(64) }, false, new SharedArrayBuffer(4));
+  assert.equal(bad.reason, 'HASH_MISMATCH');
+  assert.deepEqual(p.calls, []);
+  assert.deepEqual(fs.readdirSync(root), []);
+  const retry = await worker.runInstall(root, packageSpec(f), false, new SharedArrayBuffer(4));
+  assert.equal(retry.success, true);
+  assert.deepEqual(fs.readdirSync(root), ['100000']);
+});
+test('cold cleanup preserves current version and unrelated files, removes new and legacy leftovers without following links', () => {
+  const root = path.join(temporary, 'cleanup'); fs.mkdirSync(root);
+  const outside = path.join(temporary, 'cleanup-outside'); fs.mkdirSync(outside);
+  fs.writeFileSync(path.join(outside, 'keep'), 'safe');
+  for (const name of ['100000', '100001', '100002_temp', '100000-' + 'a'.repeat(64), '.install-100000-123', 'unrelated']) {
+    fs.mkdirSync(path.join(root, name));
+    fs.writeFileSync(path.join(root, name, 'index.html'), name);
+  }
+  fs.writeFileSync(path.join(root, '100002.zip.tmp'), 'zip');
+  fs.symlinkSync(outside, path.join(root, '100003_temp'));
+  files.cleanPackages(root, '100000');
+  assert.deepEqual(fs.readdirSync(root).sort(), ['100000', 'unrelated']);
+  assert.equal(fs.readFileSync(path.join(outside, 'keep'), 'utf8'), 'safe');
+});
+
+test('same version with a different hash cannot overwrite the existing published directory', async () => {
+  const f = fixture(benign), spec = localSpec(f), root = path.join(f.root, 'versions'), worker = localWorker(f);
+  const installed = await worker.runInstall(root, spec, false, new SharedArrayBuffer(4), f.zip);
+  assert.equal(installed.success, true);
+  const conflict = await worker.runInstall(root, { ...spec, sha256: '0'.repeat(64) }, false, new SharedArrayBuffer(4), f.zip);
+  assert.equal(conflict.reason, 'TARGET_EXISTS');
+  assert.equal(fs.readFileSync(path.join(root, '10000/index.html'), 'utf8'), 'home');
+});
+test('local ZIP in fixed work paths is rejected without deleting the input', async () => {
+  for (const relative of ['10000.zip.tmp', '10000_temp/input.zip', '10000_temp/../10000.zip.tmp']) {
+    const f = fixture(benign), spec = localSpec(f), root = path.join(f.root, 'versions');
+    fs.mkdirSync(path.join(root, '10000_temp'), { recursive: true });
+    const input = root + '/' + relative;
+    fs.copyFileSync(f.zip, input);
+    const bytes = fs.readFileSync(input);
+    const result = await localWorker(f).runInstall(root, spec, false, new SharedArrayBuffer(4), input);
+    assert.equal(result.reason, 'INVALID_SOURCE');
+    assert.deepEqual(fs.readFileSync(input), bytes);
+    assert.equal(fs.existsSync(path.join(root, '10000')), false);
+  }
+});
+test('all Android-layout installation descriptors are closed', () => { assert.equal(positions.size, 0); });

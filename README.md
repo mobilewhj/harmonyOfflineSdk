@@ -22,7 +22,7 @@ Demo 保留完成页供检查文案与进度；产品可在 `ready` 后自行导
 | 用途 | 名称 |
 | --- | --- |
 | OHPM 包名 / ArkTS import | `harmony-offline-sdk` |
-| HAR 附件 | `harmony-offline-sdk-0.1.3.har` |
+| HAR 附件 | `harmony-offline-sdk-0.1.4.har` |
 | Demo 应用 bundleName | `com.offline.demo.sample` |
 
 SDK 名称来自 `offlineSdk/oh-package.json5`；Demo 应用名来自 `AppScope/app.json5`，两者独立。SDK 不依赖 Demo。
@@ -32,7 +32,7 @@ SDK 名称来自 `offlineSdk/oh-package.json5`；Demo 应用名来自 `AppScope/
 新包在 OHPM 中心仓审核上架后，在宿主模块（例如 `entry`）目录执行：
 
 ```sh
-ohpm install harmony-offline-sdk@0.1.3
+ohpm install harmony-offline-sdk@0.1.4
 ```
 
 也可以在宿主模块的 `oh-package.json5` 中添加依赖，然后执行 `ohpm install --all` / DevEco Sync：
@@ -40,7 +40,7 @@ ohpm install harmony-offline-sdk@0.1.3
 ```json5
 {
   "dependencies": {
-    "harmony-offline-sdk": "0.1.3"
+    "harmony-offline-sdk": "0.1.4"
   }
 }
 ```
@@ -57,12 +57,12 @@ import { PackageInstaller, ResourceInterceptor, usablePackage } from 'harmony-of
 
 ## GitHub HAR 接入
 
-从 [GitHub v0.1.3](https://github.com/mobilewhj/harmonyOfflineSdk/releases/tag/v0.1.3) 下载 `harmony-offline-sdk-0.1.3.har`，放到宿主工程的 `libs/` 中，将宿主模块依赖配置为：
+从 [GitHub v0.1.4](https://github.com/mobilewhj/harmonyOfflineSdk/releases/tag/v0.1.4) 下载 `harmony-offline-sdk-0.1.4.har`，放到宿主工程的 `libs/` 中，将宿主模块依赖配置为：
 
 ```json5
 {
   "dependencies": {
-    "harmony-offline-sdk": "file:../libs/harmony-offline-sdk-0.1.3.har"
+    "harmony-offline-sdk": "file:../libs/harmony-offline-sdk-0.1.4.har"
   }
 }
 ```
@@ -71,9 +71,9 @@ import { PackageInstaller, ResourceInterceptor, usablePackage } from 'harmony-of
 
 ## 从旧包迁移
 
-`com.offline.demo@0.1.2` 是历史 SDK 包名。移除模块依赖中的旧包，添加 `harmony-offline-sdk@0.1.3`，将 SDK 的 `from 'com.offline.demo'` 改为 `from 'harmony-offline-sdk'`，然后重新 Sync。不要修改业务应用自身的 bundleName。SDK API 和运行逻辑不变。
+`com.offline.demo@0.1.2` 是历史 SDK 包名。移除模块依赖中的旧包，添加 `harmony-offline-sdk@0.1.4`，将 SDK 的 `from 'com.offline.demo'` 改为 `from 'harmony-offline-sdk'`，然后重新 Sync。不要修改业务应用自身的 bundleName。SDK API 和运行逻辑不变。
 
-仓库内 Demo 默认使用 `"harmony-offline-sdk": "file:../offlineSdk"`，便于联调源码。要验证发布版本，将 `entry/oh-package.json5` 中该值改成 `"0.1.3"` 后 Sync；下载依赖完成后，Demo 的内置离线 ZIP 仍可断网运行。
+仓库内 Demo 默认使用 `"harmony-offline-sdk": "file:../offlineSdk"`，便于联调源码。要验证发布版本，将 `entry/oh-package.json5` 中该值改成 `"0.1.4"` 后 Sync；下载依赖完成后，Demo 的内置离线 ZIP 仍可断网运行。
 
 ## 构建与测试
 
@@ -96,3 +96,22 @@ npm test
 SDK 安装并映射静态资源，不会让业务接口自动离线。服务端配置解析、版本选择、保存激活记录、Cookie 与业务请求由宿主处理。每个 root 使用单一串行安装器；Web 页面绑定固定版本，仍有页面使用的目录禁止删除。
 
 Apache-2.0 · [mobilewhj](https://github.com/mobilewhj)
+
+## 缓存目录（0.1.4 起）
+
+root 由宿主指定。与 Android 一致的 root 内布局：
+
+```text
+root/
+  100000/             # 正式资源：index.html、JS、CSS 等
+  100001.zip.tmp      # 下载或复制中的 ZIP，成功/失败/取消后删除
+  100001_temp/        # 解压临时目录，成功/失败/取消后删除
+```
+
+包内入口为 `dist/index.html` 时，发布的是 dist 内容，最终为 `<version>/index.html`。Demo 的 root 是 `filesDir/offline/packages`；业务宿主可继续使用自己的 `filesDir/offline/webview`。
+
+使用 `packageDirectory(root, record)` 获取正式路径，清理时传入当前版本目录名（例如 `cleanup(root, '100000')`）。SHA-256 仍用于完整性校验并由宿主保存；同版本不同摘要由宿主拒绝，已存在的版本目录返回 `TARGET_EXISTS`，不会覆盖。
+
+0.1.3 的 `<version>-<sha256>` 缓存不会自动迁移；升级后需重新安装包。冷启动、尚无页面绑定时，可调用 cleanup 清理历史缓存和遗留临时文件；已有 `<version>/` 布局可继续复用。禁止在已有页面使用旧目录时清理。
+
+每个 root 的安装和清理必须由宿主串行调度。`installFromFile` 输入 ZIP 必须位于 SDK root 之外，不能通过路径别名指向该目录内部；工作目录内输入返回 `INVALID_SOURCE`，不执行清理。

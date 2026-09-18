@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.4
+
+- 对齐 Android 缓存布局：`<version>/`、`<version>.zip.tmp`、`<version>_temp/`。
+- 包内 `dist/` 内容直接发布到版本目录；取消及失败后清理固定临时路径。
+- 冷启动清理兼容旧版 version-hash 和 `.install-` 遗留目录，保留宿主指定的当前版本。
+- 本地 ZIP 输入须在 SDK root 之外，拒绝工作目录内输入以避免清理影响源文件。
+- Demo 使用与 Android 示例相同的 `filesDir/offline/packages` 根目录。
+
 ## 0.1.3
 
 - SDK 发布包名、依赖名称和 ArkTS import 统一改为 `harmony-offline-sdk`。

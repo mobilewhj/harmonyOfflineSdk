@@ -165,45 +165,70 @@ function verifyHash(path: string, expected: string, signal: Int32Array): void {
   }
 }
 
+// Local inputs must live outside the SDK-owned root, where cleanup may remove files.
+function normalizedPath(value: string): string {
+  if (!value.startsWith('/')) { throw new OfflineError('INVALID_SOURCE'); }
+  const parts: string[] = [];
+  for (let part of value.split('/')) {
+    if (!part || part === '.') { continue; }
+    if (part === '..') { parts.pop(); } else { parts.push(part); }
+  }
+  return '/' + parts.join('/');
+}
+
 export async function runInstall(root: string, spec: PackageSpec, allowHttp: boolean,
   cancellation: SharedArrayBuffer, localArchive: string = ''): Promise<InstallResult> {
   const signal = new Int32Array(cancellation);
   let stage = OfflineStage.PREPARING;
   const directory = packageDirectory(root, spec);
-  const temporary = root + '/.install-' + spec.version + '-' + Date.now();
+  const zip = root + '/' + spec.version + '.zip.tmp';
+  const temporary = root + '/' + spec.version + '_temp';
   let reason = '';
+  let cleanup = false;
   try {
+    if (localArchive) {
+      const source = normalizedPath(localArchive);
+      const ownedRoot = normalizedPath(root);
+      if (source === ownedRoot || source.startsWith(ownedRoot + '/')) {
+        throw new OfflineError('INVALID_SOURCE');
+      }
+    }
     checkCancellation(signal);
     if (!localArchive && !validDownloadUrl(spec.url, allowHttp)) { throw new OfflineError('INVALID_URL'); }
-    fs.mkdirSync(temporary + '/content', true);
+    if (fs.accessSync(directory)) { throw new OfflineError('TARGET_EXISTS'); }
+    // One installer per root, with serialized install/cleanup. Reuse fixed Android-compatible paths.
+    cleanup = true;
+    removeTree(zip);
+    removeTree(temporary);
+    fs.mkdirSync(temporary, true);
     if (localArchive) {
       notify(OfflineStage.PREPARING, -1);
-      copyArchive(localArchive, temporary + '/package.zip', signal);
+      copyArchive(localArchive, zip, signal);
     } else {
       stage = OfflineStage.DOWNLOADING;
-      await download(spec.url, temporary + '/package.zip', allowHttp, signal);
+      await download(spec.url, zip, allowHttp, signal);
     }
     stage = OfflineStage.VERIFYING;
     notify(stage, -1);
-    verifyHash(temporary + '/package.zip', spec.sha256, signal);
+    verifyHash(zip, spec.sha256, signal);
     stage = OfflineStage.EXTRACTING;
     notify(stage, -1);
-    await extractPackage(temporary + '/package.zip', temporary + '/content', () => checkCancellation(signal));
-    if (!contentRoot(temporary + '/content')) { throw new OfflineError('MISSING_ENTRY'); }
+    await extractPackage(zip, temporary, () => checkCancellation(signal));
+    const content = contentRoot(temporary);
+    if (!content) { throw new OfflineError('MISSING_ENTRY'); }
     checkCancellation(signal);
     stage = OfflineStage.SAVING;
     notify(stage, 99);
-    // The host removes invalid unbound destinations before installing. Never overwrite a published package.
     if (fs.accessSync(directory)) { throw new OfflineError('TARGET_EXISTS'); }
-    fs.renameSync(temporary + '/content', directory);
+    fs.renameSync(content, directory);
   } catch (error) {
-    if (error instanceof OfflineError) {
-      reason = error.reason;
-    } else {
-      reason = 'FILE_IO';
-    }
+    reason = error instanceof OfflineError ? error.reason : 'FILE_IO';
   } finally {
-    try { removeTree(temporary); } catch (_) { if (!reason) { reason = 'CLEANUP'; } }
+    if (cleanup) {
+      for (let path of [zip, temporary]) {
+        try { removeTree(path); } catch (_) { if (!reason) { reason = 'CLEANUP'; } }
+      }
+    }
   }
   return { success: reason === '', reason, stage, directory };
 }

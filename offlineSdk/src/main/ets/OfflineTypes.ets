@@ -42,7 +42,7 @@ export function packageDirectory(root: string, record: PackageRecord): string {
   if (!validRecord(record)) {
     throw new OfflineError('INVALID_CONFIG');
   }
-  return `${root}/${record.version}-${record.sha256}`;
+  return `${root}/${record.version}`;
 }
 
 export function validRecord(record: PackageRecord): boolean {
