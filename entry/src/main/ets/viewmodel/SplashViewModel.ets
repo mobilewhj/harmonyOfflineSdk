@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { OfflineProgress, OfflineStage } from 'harmony-offline-sdk';
+import { OfflineProgress, OfflineStage } from 'com.offline.demo';
 import { DemoRepository } from '../data/DemoRepository';
 
 export function startupText(stage: OfflineStage): string {

@@ -4,7 +4,7 @@
 
 纯 ArkTS 的 HarmonyOS 离线 ZIP SDK。官方 ZIP 解压 API、SHA-256 校验、TaskPool 后台安装、固定版本的 ArkWeb 资源映射，不依赖第三方解压库或 C++。
 
-- `offlineSdk/`：可独立分发的 HAR，包名 `harmony-offline-sdk`。
+- `offlineSdk/`：可独立分发的 HAR，包名 `com.offline.demo`。
 - `entry/`：可运行的 Splash Demo，页面 → ViewModel → Repository → SDK。
 - `sample-web/`：内置示例网页源码；Demo 首次运行也无需联网。
 
@@ -17,14 +17,23 @@
 
 Demo 保留完成页供检查文案与进度；产品可在 `ready` 后自行导航。检查 [Demo 文档](docs/DEMO.md) 了解缓存和在线接入方式。
 
+## 命名
+
+| 用途 | Android | HarmonyOS |
+| --- | --- | --- |
+| SDK 公开包名 / import | `com.offline.demo` | `com.offline.demo` |
+| Demo 应用包名 | `com.offline.demo.sample` | `com.offline.demo.sample` |
+
+HarmonyOS 的 SDK 名称来自 `offlineSdk/oh-package.json5`；Demo 的 bundleName 来自 `AppScope/app.json5`，两者独立。GitHub 作者仍为 `mobilewhj`。
+
 ## 使用发布的 HAR
 
-从 [GitHub Releases](https://github.com/mobilewhj/harmonyOfflineSdk/releases) 下载 `harmony-offline-sdk-0.1.0.har`，放到宿主工程的 `libs/` 中。宿主模块的 `oh-package.json5`：
+从 [GitHub Releases](https://github.com/mobilewhj/harmonyOfflineSdk/releases) 下载 `com.offline.demo-0.1.1.har`，放到宿主工程的 `libs/` 中。宿主模块的 `oh-package.json5`：
 
 ```json5
 {
   "dependencies": {
-    "harmony-offline-sdk": "file:../libs/harmony-offline-sdk-0.1.0.har"
+    "com.offline.demo": "file:../libs/com.offline.demo-0.1.1.har"
   }
 }
 ```
@@ -32,7 +41,7 @@ Demo 保留完成页供检查文案与进度；产品可在 `ready` 后自行导
 执行 `ohpm install --all` / DevEco Sync，然后导入：
 
 ```typescript
-import { PackageInstaller, ResourceInterceptor, usablePackage } from 'harmony-offline-sdk';
+import { PackageInstaller, ResourceInterceptor, usablePackage } from 'com.offline.demo';
 ```
 
 目前通过 GitHub + HAR 分发，**尚未发布 OHPM 中心仓**，不能直接用中心仓包名安装。与 Android 的 JitPack 不同，这里分发的是 HarmonyOS HAR。

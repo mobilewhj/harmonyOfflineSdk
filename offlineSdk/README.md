@@ -1,15 +1,15 @@
-# harmony-offline-sdk
+# com.offline.demo
 
 HarmonyOS API 12+，纯 ArkTS HAR。官方 ZIP 解压、SHA-256 校验及 ArkWeb 本地资源映射。
 
 ## 安装
 
-下载 GitHub Release 的 HAR，在宿主模块声明 `"harmony-offline-sdk": "file:../libs/harmony-offline-sdk-0.1.0.har"`，执行 `ohpm install --all`。目前未上传 OHPM 中心仓。
+下载 GitHub Release 的 HAR，在宿主模块声明 `"com.offline.demo": "file:../libs/com.offline.demo-0.1.1.har"`，执行 `ohpm install --all`。目前未上传 OHPM 中心仓。
 
 ## 主要 API
 
 ```typescript
-import { PackageInstaller, PackageSpec, OfflineProgress, usablePackage } from 'harmony-offline-sdk';
+import { PackageInstaller, PackageSpec, OfflineProgress, usablePackage } from 'com.offline.demo';
 
 const installer = new PackageInstaller();
 // spec: { version: 10000, sha256: '<来自可信配置的64位小写SHA-256>', url: '<HTTPS ZIP URL>' }
