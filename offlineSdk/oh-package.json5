@@ -1,6 +1,6 @@
 {
-  "name": "harmony-offline-sdk",
-  "version": "0.1.4",
+  "name": "com.offline.tool",
+  "version": "0.2.0",
   "description": "HarmonyOS offline ZIP installation and immutable ArkWeb resource mapping",
   "main": "Index.ets",
   "author": {

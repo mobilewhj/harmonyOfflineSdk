@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
+python3 scripts/generate-sample.py --check
 DEVECO_HOME="${DEVECO_HOME:-/Applications/DevEco-Studio.app/Contents}"
 export NODE_HOME="${NODE_HOME:-$DEVECO_HOME/tools/node}"
 export DEVECO_SDK_HOME="${DEVECO_SDK_HOME:-$DEVECO_HOME/sdk}"

@@ -62,7 +62,7 @@ export function usablePackage(root: string, record: PackageRecord): string {
 export function cleanPackages(root: string, keep: string): void {
   fs.mkdirSync(root, true);
   for (let name of fs.listFileSync(root)) {
-    // Also discard leftovers from the pre-0.1.4 version-hash naming scheme.
+    // Also discard leftovers from the pre-0.2.0 version-hash naming scheme.
     if (name !== keep && (/^\d+(?:_temp|\.zip\.tmp)?$/.test(name) ||
       /^\d+-[a-f0-9]{64}$/.test(name) || name.startsWith('.install-'))) {
       removeTree(root + '/' + name);

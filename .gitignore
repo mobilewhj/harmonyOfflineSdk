@@ -12,3 +12,8 @@ dist/
 *.keystore
 
 **/BuildProfile.ets
+*.pem
+*.key
+.env
+.env.*
+.ohpmrc

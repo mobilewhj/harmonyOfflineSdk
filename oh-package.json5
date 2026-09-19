@@ -1,7 +1,7 @@
 {
   "modelVersion": "5.0.0",
-  "name": "com.offline.demo.sample",
-  "version": "0.1.4",
+  "name": "com.offline.tool.sample",
+  "version": "0.2.0",
   "description": "Standalone offline SDK and Splash demo",
   "license": "Apache-2.0",
   "dependencies": {},

@@ -4,7 +4,7 @@
 
 纯 ArkTS 的 HarmonyOS 离线 ZIP SDK。官方 ZIP 解压 API、SHA-256 校验、TaskPool 后台安装、固定版本的 ArkWeb 资源映射，不依赖第三方解压库或 C++。
 
-- `offlineSdk/`：可独立分发的 HAR，包名 `harmony-offline-sdk`。
+- `offlineSdk/`：可独立分发的 HAR，包名 `com.offline.tool`。
 - `entry/`：可运行的 Splash Demo，页面 → ViewModel → Repository → SDK。
 - `sample-web/`：内置示例网页源码；Demo 首次运行也无需联网。
 
@@ -21,9 +21,9 @@ Demo 保留完成页供检查文案与进度；产品可在 `ready` 后自行导
 
 | 用途 | 名称 |
 | --- | --- |
-| OHPM 包名 / ArkTS import | `harmony-offline-sdk` |
-| HAR 附件 | `harmony-offline-sdk-0.1.4.har` |
-| Demo 应用 bundleName | `com.offline.demo.sample` |
+| OHPM 包名 / ArkTS import | `com.offline.tool` |
+| HAR 附件 | `com.offline.tool-0.2.0.har` |
+| Demo 应用 bundleName | `com.offline.tool.sample` |
 
 SDK 名称来自 `offlineSdk/oh-package.json5`；Demo 应用名来自 `AppScope/app.json5`，两者独立。SDK 不依赖 Demo。
 
@@ -32,7 +32,7 @@ SDK 名称来自 `offlineSdk/oh-package.json5`；Demo 应用名来自 `AppScope/
 新包在 OHPM 中心仓审核上架后，在宿主模块（例如 `entry`）目录执行：
 
 ```sh
-ohpm install harmony-offline-sdk@0.1.4
+ohpm install com.offline.tool@0.2.0
 ```
 
 也可以在宿主模块的 `oh-package.json5` 中添加依赖，然后执行 `ohpm install --all` / DevEco Sync：
@@ -40,7 +40,7 @@ ohpm install harmony-offline-sdk@0.1.4
 ```json5
 {
   "dependencies": {
-    "harmony-offline-sdk": "0.1.4"
+    "com.offline.tool": "0.2.0"
   }
 }
 ```
@@ -48,21 +48,21 @@ ohpm install harmony-offline-sdk@0.1.4
 OHPM 自动下载 HAR，无需复制 SDK 源码或引入 Demo。导入示例：
 
 ```typescript
-import { PackageInstaller, ResourceInterceptor, usablePackage } from 'harmony-offline-sdk';
+import { PackageInstaller, ResourceInterceptor, usablePackage } from 'com.offline.tool';
 ```
 
-- [OHPM 包页面](https://ohpm.openharmony.cn/#/cn/detail/harmony-offline-sdk)（审核上架后可用）
+- [OHPM 包页面](https://ohpm.openharmony.cn/#/cn/detail/com.offline.tool)（审核上架后可用）
 - [SDK API 与资源拦截说明](offlineSdk/README.md)
 - [Splash Demo 使用说明](docs/DEMO.md)
 
 ## GitHub HAR 接入
 
-从 [GitHub v0.1.4](https://github.com/mobilewhj/harmonyOfflineSdk/releases/tag/v0.1.4) 下载 `harmony-offline-sdk-0.1.4.har`，放到宿主工程的 `libs/` 中，将宿主模块依赖配置为：
+从 [GitHub v0.2.0](https://github.com/mobilewhj/harmonyOfflineSdk/releases/tag/v0.2.0) 下载 `com.offline.tool-0.2.0.har`，放到宿主工程的 `libs/` 中，将宿主模块依赖配置为：
 
 ```json5
 {
   "dependencies": {
-    "harmony-offline-sdk": "file:../libs/harmony-offline-sdk-0.1.4.har"
+    "com.offline.tool": "file:../libs/com.offline.tool-0.2.0.har"
   }
 }
 ```
@@ -71,9 +71,9 @@ import { PackageInstaller, ResourceInterceptor, usablePackage } from 'harmony-of
 
 ## 从旧包迁移
 
-`com.offline.demo@0.1.2` 是历史 SDK 包名。移除模块依赖中的旧包，添加 `harmony-offline-sdk@0.1.4`，将 SDK 的 `from 'com.offline.demo'` 改为 `from 'harmony-offline-sdk'`，然后重新 Sync。不要修改业务应用自身的 bundleName。SDK API 和运行逻辑不变。
+旧包为 `harmony-offline-sdk@0.1.4`（更早为 `com.offline.demo@0.1.2`）。移除旧依赖，添加 `com.offline.tool@0.2.0`，将 SDK import 改为 `from 'com.offline.tool'`。业务应用自身的 bundleName 无需修改。SDK 安装逻辑不变。
 
-仓库内 Demo 默认使用 `"harmony-offline-sdk": "file:../offlineSdk"`，便于联调源码。要验证发布版本，将 `entry/oh-package.json5` 中该值改成 `"0.1.4"` 后 Sync；下载依赖完成后，Demo 的内置离线 ZIP 仍可断网运行。
+仓库内 Demo 默认使用 `"com.offline.tool": "file:../offlineSdk"`，便于联调源码。要验证发布版本，将 `entry/oh-package.json5` 中该值改成 `"0.2.0"` 后 Sync；下载依赖完成后，Demo 的内置离线 ZIP 仍可断网运行。
 
 ## 构建与测试
 
@@ -115,3 +115,16 @@ root/
 0.1.3 的 `<version>-<sha256>` 缓存不会自动迁移；升级后需重新安装包。冷启动、尚无页面绑定时，可调用 cleanup 清理历史缓存和遗留临时文件；已有 `<version>/` 布局可继续复用。禁止在已有页面使用旧目录时清理。
 
 每个 root 的安装和清理必须由宿主串行调度。`installFromFile` 输入 ZIP 必须位于 SDK root 之外，不能通过路径别名指向该目录内部；工作目录内输入返回 `INVALID_SOURCE`，不执行清理。
+
+## 本地生成示例包
+
+Demo ZIP 仅由仓库 `sample-web/` 中可审阅的示例文件生成，脚本不接收下载地址或外部 ZIP。使用 Python 3，固定文件顺序、时间戳和权限，生成 ZIP 时同步更新 Demo 的 SHA-256。
+
+```sh
+python3 scripts/generate-sample.py
+python3 scripts/generate-sample.py --check
+```
+
+CI 会检查已提交 ZIP、示例源码和配置摘要是否一致。修改网页后，应提高 Demo 的离线包版本号再测试已有安装，或清除 Demo 应用数据。测试 ZIP 由测试夹具在本地构造；Demo 和测试均无需业务网页或真实账号。
+
+[0.2.0 migration / 改名接入说明](docs/MIGRATION-0.2.0.md)
