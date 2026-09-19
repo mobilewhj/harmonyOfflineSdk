@@ -2,7 +2,7 @@
 
 ## 打开运行
 
-DevEco Studio 打开工程根目录，Sync 后选择 `entry/default`。真机需要在 Project Structure → Signing Configs 设置自己的自动签名，然后 Run。`com.offline.demo.sample` 为示例包名。
+DevEco Studio 打开工程根目录，Sync 后选择 `entry/default`。真机需要在 Project Structure → Signing Configs 设置自己的自动签名，然后 Run。`com.offline.tool.sample` 为示例包名。
 
 Demo 使用内置 ZIP 和固定可信 SHA-256。安装、校验、官方解压、文件持久化、Web 映射均是真实调用；无需 OSS 地址、后端接口或登录。示例网页的三个文件均从本地映射，域名 `offline.example.invalid` 为保留示例域名，不依赖任何真实服务器。
 
@@ -42,7 +42,7 @@ Demo 使用内置 ZIP 和固定可信 SHA-256。安装、校验、官方解压�
 
 `debug` 构建模式不等于已经配置调试签名。`entry-default-unsigned.hap` 没有签名，真机拒绝安装属于预期。
 
-个人华为开发者账号可以调试 Demo，不要求使用公司团队。在 DevEco 的“项目结构 → 项目 → 签名配置”中选择个人团队，勾选“自动生成签名文件”，确认包名是 `com.offline.demo.sample`，连接并解锁调试手机后应用配置。普通 Demo 无需关联已注册应用。生成成功后重新 Run，应安装 `entry-default-signed.hap`。若已生成签名文件却仍安装 unsigned HAP，检查工程级 `build-profile.json5` 中 `app.products` 的 `default` 产品是否配置了 `"signingConfig": "default"`，然后同步项目。账号认证或登录授权由账号本人完成。
+个人华为开发者账号可以调试 Demo，不要求使用公司团队。在 DevEco 的“项目结构 → 项目 → 签名配置”中选择个人团队，勾选“自动生成签名文件”，确认包名是 `com.offline.tool.sample`，连接并解锁调试手机后应用配置。普通 Demo 无需关联已注册应用。生成成功后重新 Run，应安装 `entry-default-signed.hap`。若已生成签名文件却仍安装 unsigned HAP，检查工程级 `build-profile.json5` 中 `app.products` 的 `default` 产品是否配置了 `"signingConfig": "default"`，然后同步项目。账号认证或登录授权由账号本人完成。
 
 自动生成的签名配置与密钥属于本机，不要提交到 GitHub。公开 HAR 无需应用签名；其他人运行 Demo 时使用自己的调试签名。
 
@@ -50,6 +50,6 @@ Demo 使用内置 ZIP 和固定可信 SHA-256。安装、校验、官方解压�
 
 ## 使用发布的 SDK 运行 Demo
 
-仓库默认依赖 SDK 源码模块，公开依赖名称为 `harmony-offline-sdk`。如要验证 OHPM 发布版本，待其审核上架后，将 `entry/oh-package.json5` 中的 `"harmony-offline-sdk": "file:../offlineSdk"` 改为 `"harmony-offline-sdk": "0.1.4"`，然后 Sync 和 Run。
+仓库默认依赖 SDK 源码模块，公开依赖名称为 `com.offline.tool`。如要验证 OHPM 发布版本，待其审核上架后，将 `entry/oh-package.json5` 中的 `"com.offline.tool": "file:../offlineSdk"` 改为 `"com.offline.tool": "0.2.0"`，然后 Sync 和 Run。
 
-如果使用 GitHub HAR，则将附件放入根目录 `libs/`，依赖值改为 `"file:../libs/harmony-offline-sdk-0.1.4.har"`。两种接入方式的 import 都是 `harmony-offline-sdk`。SDK 不依赖 Demo 应用。
+如果使用 GitHub HAR，则将附件放入根目录 `libs/`，依赖值改为 `"file:../libs/com.offline.tool-0.2.0.har"`。两种接入方式的 import 都是 `com.offline.tool`。SDK 不依赖 Demo 应用。

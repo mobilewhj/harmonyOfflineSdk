@@ -302,7 +302,7 @@ test('resource mapping is confined to its immutable directory and configured URL
   const base = 'https://example.com/app/';
   assert.equal(api.relativeResource(base + 'index.html?v=1', base), 'index.html');
   assert.equal(api.relativeResource(base, base), 'index.html');
-  for (const url of ['https://evil.com/app/index.html', 'https://example.com/app2/index.html',
+  for (const url of ['https://other.example/app/index.html', 'https://example.com/app2/index.html',
     base + '../secret', base + '%2e%2e/secret', base + 'a%2fb/../../secret', base + '%255csecret', 'http://example.com/app/index.html']) {
     assert.equal(api.relativeResource(url, base), '', url);
   }

@@ -1,11 +1,11 @@
 {
   "name": "entry",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Splash offline demo",
   "main": "",
   "author": "mobilewhj",
   "license": "Apache-2.0",
   "dependencies": {
-    "harmony-offline-sdk": "file:../offlineSdk"
+    "com.offline.tool": "file:../offlineSdk"
   }
 }

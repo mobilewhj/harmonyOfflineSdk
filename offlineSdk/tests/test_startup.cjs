@@ -21,7 +21,7 @@ function setup() {
   }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports,Observed){' + output + '\n})')(
-    name => name === 'harmony-offline-sdk' ? { OfflineStage: stages } : { DemoRepository: Repository },
+    name => name === 'com.offline.tool' ? { OfflineStage: stages } : { DemoRepository: Repository },
     module, module.exports, value => value);
   const model = new module.exports.SplashViewModel(); model.attach({});
   return { model, calls:()=>calls, resolve:v=>resolve(v), reject:e=>reject(e), progress:v=>progress(v), disposed:()=>disposed };

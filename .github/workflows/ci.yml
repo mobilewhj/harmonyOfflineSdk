@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify generated demo package
+        run: python3 scripts/generate-sample.py --check
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
