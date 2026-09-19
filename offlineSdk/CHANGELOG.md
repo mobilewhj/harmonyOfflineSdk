@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- OHPM 包名与 ArkTS import 统一为 `com.offline.tool`。
+- Demo 标识改为 `com.offline.tool.sample`。
+- 安装、校验、解压和缓存目录行为不变。
+- 从旧包迁移时替换依赖名称和 import。
+
 ## 0.1.4
 
 - 对齐 Android 缓存布局：`<version>/`、`<version>.zip.tmp`、`<version>_temp/`。
