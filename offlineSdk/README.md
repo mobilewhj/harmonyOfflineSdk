@@ -2,9 +2,35 @@
 
 HarmonyOS API 12+，纯 ArkTS HAR。官方 ZIP 解压、SHA-256 校验及 ArkWeb 本地资源映射。
 
-## 安装
 
-OHPM 中心仓审核上架后，在宿主模块（例如 `entry`）目录执行：
+当前 SDK 版本为 **0.3.1**。宿主模块使用精确依赖 `"com.offline.tool": "0.3.1"` 后执行 `ohpm install --all`；版本可用性以实际 OHPM 解析为准。离线分发可用核对过摘要的 `file:../libs/com.offline.tool-0.3.1.har`。历史0.2.0只适用于旧低层 API。API12运行测试跳过，最低版本不变；隔离API26开发候选的局部运行记录不能代表全部平台或真实宿主业务。
+
+## 默认托管接入
+
+```typescript
+import { ManagedOfflineSdk, ArkWebPage } from 'com.offline.tool';
+const offline = await ManagedOfflineSdk.create(context, { configProvider: fetchConfig });
+offline.updateConditions({ privacyAccepted, foreground });
+const result = await offline.prepareStartup({ onProgress: renderChineseProgress });
+// CONTINUE 不代替 App 的隐私/前台/导航门禁；DEFERRED 下次自然入口再准备。
+const page = new ArkWebPage(uiContext, controller, { resourceBaseUrl: originalResourceBaseUrl });
+await offline.loadPage(page, originalPageUrl);
+// onInterceptRequest: (event) => page.intercept(event.request)
+```
+
+应用级 manager 不随页面销毁关闭。首次实际 owner 才收到 ManagedProgress；普通配置/准备失败结束离线等待，不要求新增业务提示、弹窗或手动重试，真取消抛 OfflineCancelledError；后次/静默无首次 UI。默认五分钟按真正 provider 调用的 monotonic uptime 起点计算，后台停止新静默调度；已开始的静默检查可继续准备；首装遵守前台检查点，隐私撤回取消更新。
+
+默认事务存储、版本决策和调度均归 SDK；托管入口不读取宿主包账本；旧 `keyValueStore` 类型仅为源码兼容保留；向 `ManagedOfflineSdk.create` 传入该字段会被拒绝。`offline_package(version, sha256, stage)` 是唯一持久事实。默认 `allowRebuild: false`，仅数据库打开返回数值 `14800011` 才交平台以 `allowRebuild: true` 重开一次；普通读取、权限和结构失败不能当空表或触发清包。`Prepared` 仅在 ready 写入确认后一次投递；`PrepareFailed` 保留实际阶段，`Diagnostic` 不作安装统计。回调异常不阻 SDK，不等待宿主上报 Promise。
+
+更高静默目标按策略更新→同步资源缓存调用→准备执行，同目标一次，普通缓存失败仅诊断、不补清。宿主 API18+ 可用静态 `WebviewController.removeAllCache(true)` 无页面调用；API12–17 需要一个关联 Web 的 controller，无页面差异保持开放。只清资源缓存，不清 Cookie、localStorage、登录或 Bridge；API26 隔离开发候选已有数据库、ZIP、下载及部分ArkWeb运行记录；这些局部结果和主机测试都不代表全平台或真实宿主业务通过。
+
+`loadPage` 保持原 HTTP(S) URL；同步 interception 对缺资源、空文件、POST、Range、元数据/FD/响应异常返回 undefined 回源。成功 FD 交系统 Web 读取，SDK 不提前关闭。绑定页仅动态遵守 enabled，manager.close 限制新离线绑定但不改旧绑定；page.close 只关闭本页。
+
+完整生命周期与职责见[托管接入](https://github.com/mobilewhj/harmonyOfflineSdk/blob/main/docs/MANAGED-INTEGRATION.md)及[验证范围](https://github.com/mobilewhj/harmonyOfflineSdk/blob/main/docs/VALIDATION.md)；旧四原语示例不适用于当前托管事务存储。原低层 API 表保留在下方；托管与旧 writer 不得共享 root。
+
+## 历史 0.2.0 低层安装
+
+0.2.0 是已发布的旧低层 API。需要维护该版本时，可在宿主模块（例如 `entry`）目录执行：
 
 ```sh
 ohpm install com.offline.tool@0.2.0
@@ -22,11 +48,9 @@ ohpm install com.offline.tool@0.2.0
 
 OHPM 自动下载 HAR。源码和 Demo 位于 [GitHub](https://github.com/mobilewhj/harmonyOfflineSdk)，[Demo 说明](https://github.com/mobilewhj/harmonyOfflineSdk/blob/main/docs/DEMO.md)。
 
-也可下载 [GitHub v0.2.0](https://github.com/mobilewhj/harmonyOfflineSdk/releases/tag/v0.2.0) 的 HAR，放入宿主工程 `libs/`，将模块依赖设为 `"com.offline.tool": "file:../libs/com.offline.tool-0.2.0.har"` 后执行 `ohpm install --all`。远程依赖与本地 HAR 二选一；审核上架前可使用本地 HAR。
+从旧 `com.offline.demo@0.1.2` 迁移时，删除旧依赖并替换 SDK import 为 `com.offline.tool`，不需要改变宿主应用 bundleName。这段仅说明历史0.2.0命名迁移；0.3.1托管API请按上文和接入说明迁移。
 
-从旧 `com.offline.tool@0.1.2` 迁移时，删除旧依赖并替换 SDK import 为 `com.offline.tool`，不需要改变宿主应用 bundleName。SDK API 保持不变。
-
-## 主要 API
+## 旧低层 API
 
 ```typescript
 import { PackageInstaller, PackageSpec, OfflineProgress, usablePackage } from 'com.offline.tool';
@@ -67,7 +91,7 @@ if (result.success) {
 ## 安装和版本约束
 
 - ZIP32、Store/Deflate、UTF-8 文件名；不支持 ZIP64、加密、多卷、符号链接或特殊文件。
-- ZIP 最大 64 MiB，单文件解压上限 64 MiB，总解压上限 256 MiB，最多 10,000 条目；提取前后验证元数据、路径、大小和 CRC。
+- SDK 不另设固定包大小、展开总量、条目数量或名称长度产品上限；保留路径、重复项、格式、实际文件大小和 CRC 校验，仍受 ZIP 格式及平台资源条件约束。被输出的目录条目按实际正文验证为空，元数据零长度不能单独证明。
 - 同版本的目标已存在返回 `TARGET_EXISTS`，不会覆盖。先用 `usablePackage` 判断复用；只可移除未绑定的损坏目录后重试。
 - 下载默认 HTTPS:443，最长 120 秒、最多 10 次同协议跳转。HTTP:80 需显式 opt-in；拒绝 URL 用户名、密码、fragment 和非默认端口。
 - `percent = -1` 为未知进度，校验和官方 ZIP 解压不伪造百分比。本地复制同样显示准备阶段。
@@ -87,7 +111,7 @@ root/
   100001_temp/        # 解压临时目录，成功/失败/取消后删除
 ```
 
-包内入口为 `dist/index.html` 时，发布的是 dist 内容，最终为 `<version>/index.html`。Demo 的 root 是 `filesDir/offline/packages`；业务宿主可继续使用自己的 `filesDir/offline/webview`。
+包内 root `index.html` 优先；仅有 `dist/index.html` 时只输出 dist 子树、去前缀，最终物理入口为 `<version>/index.html`。dist-only 未选中的内容不输出，但所有输入仍做路径/重复检查。旧低层调用者仍可使用自己独立的私有root；不能与托管manager共享root。
 
 使用 `packageDirectory(root, record)` 获取正式路径，清理时传入当前版本目录名（例如 `cleanup(root, '100000')`）。SHA-256 仍用于完整性校验并由宿主保存；同版本不同摘要由宿主拒绝，已存在的版本目录返回 `TARGET_EXISTS`，不会覆盖。
 

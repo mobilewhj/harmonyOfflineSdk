@@ -1,46 +1,31 @@
-# Validation — 0.1.4
+# Validation scope for 0.3.1
 
-2026-09-18：缓存布局对齐 Android。31 项主机测试通过，包含固定临时路径、root/dist 入口发布、摘要失败重试、取消后清理、历史目录清理、同版本不覆盖及本地 ZIP 输入保护。SDK release HAR、源码 Demo 和无 SDK 源码的独立 HAR 消费工程均 clean/build 成功；OHPM prepublish 通过，publish 已提交审核。0.1.4 尚未重复真机交互验收。
+This page records the scope of available implementation checks. It does not certify all devices or a host application's business flow. Published source, HAR and consumer identities are separate from the development-candidate observations below.
 
-HAR SHA-256：`ad04ea54bc0a74c95d32db41c89017e9e7545c855727b5b2bbe03cae6680c04a`。
+## Development-candidate observations
 
-## 0.1.3 验证记录
+- Host source and resolved-HAR regressions cover managed startup, lifecycle, cancellation, event boundaries, files/ZIP handling, Demo behavior and file-backed SQLite. Memory/platform substitutes, host SQLite and native ArkData are distinct evidence layers; no aggregate count is described as entirely native.
+- Isolated API26 database runs exercised first-schema creation with pooled connections, failed-cursor rejection, transaction rollback, immutable SHA and unique stages, migration retention, ordinary-read protection and confirmed closed-owned-file corruption recovery. Runtime empty-table protection used SQL DELETE and did not inject corruption into a live cached handle.
+- Isolated API26 ZIP/package runs rejected actual body bytes in selected nonempty-path directory entries, accepted empty directories, selected the root entry first and produced a physical version/index.html for dist-only input. They also retained the process in-use bytes when preparation failed.
+- Native download checks covered successful preparation, zero-byte connection failure, Local input-open failure, configuration diagnostics, real partial-transfer cancellation and same-manager retry. A close check awaited native settlement and observed a finite no-write interval; it is not an indefinite absence-of-writes or FD-leak proof. ZIP extraction cancellation and privacy withdrawal during an actual transfer were not covered by those partial-transfer cases.
+- Development-candidate process checks observed ready activation after a real cold process without another Prepared event, and the unchanged default 300000ms foreground scheduler. Foreground overdue checks and accelerated host clocks are separate from natural timing.
+- Generic ArkWeb checks observed original HTTP(S) origin/path/query/hash, local resource consumption, missing-resource fallback, Range fallback and resource-cache effects with and without an associated page on API26. Cookie, localStorage and Bridge values were retained in the read-only probes. These checks do not certify an application's authentication flow or independently audit descriptor leaks.
 
-2026-09-18：SDK 更名为 `harmony-offline-sdk`，版本 `0.1.3`。
+The initial native schema-visibility and failed-cursor defects were corrected. Their earlier failures and the subsequent scoped results are not treated as the same artifact run. Repackaging documentation or metadata does not convert a development HAR's runtime record into a new artifact's run.
 
-| 检查 | 结果 |
+## Platform and host boundaries
+
+| Area | Boundary |
 | --- | --- |
-| SDK release HAR 与源码依赖 Demo | clean 后完整构建通过 |
-| 主机测试 | 25 项通过，启动测试使用新 import 名称 |
-| 独立 HAR 消费工程 | 移除 SDK 源码模块，仅通过 `file:../libs/harmony-offline-sdk-0.1.3.har` 依赖，Demo 完整构建通过 |
-| 包元数据和附件 | 新名称、版本、作者网址正确；未包含签名或密钥文件；已生成 SHA256SUMS |
-| OHPM prepublish / publish | 预检通过，提交成功，返回审核中 |
-| 真机交互 | 本次未重新验收，个人签名仅保留本地 |
+| API12 | Runtime testing is skipped; declared minimum API12 is unchanged. Higher-version results do not establish API12 behavior. |
+| Resource cache | API18+ can synchronously initiate clearing with WebviewController.removeAllCache(true) without an associated page. API12–17 require a Web-associated controller; no-page clearing remains unavailable there. A void API return alone is not evidence of the effect. |
+| ZIP | ZIP32 Store/Deflate and supported entry/name formats apply. ZIP64, encryption, multi-volume, symlinks and special files are not supported. Actual disk/memory constraints remain; no extra package-size, expanded-total, entry-count or name-length product caps are imposed. |
+| Remote transfer | The current total deadline is 120 seconds, with at most ten same-protocol redirects. This is an implementation limit, separate from package-size policy. |
+| Host integration | Preserve existing privacy, configuration, authentication, navigation and reporting chains. Ordinary offline failure only ends offline waiting; it does not require a notice or manual retry and does not bypass business gates. |
+| Events | Only Prepared and PrepareFailed represent installation reporting. Diagnostic, progress, activation and resource failures are not additional installation reports. Client HTTP success does not establish backend receipt. |
 
-SDK 运行逻辑和 API 不变；调整包名、依赖和 import。审核通过前中心仓依赖尚不可用，可先使用 GitHub HAR。
+## Release identity
 
-## 0.1.2 验证记录
+The release package is the SDK HAR and SHA256SUMS. Compare the declared package/version, complete HAR members and independently resolved consumer bytes. Actual registry download establishes remote availability; source metadata, prepublish or a successful local build alone does not. Host applications validate their affected behavior with the bytes they actually consume.
 
-2026-09-18：0.1.2 补充作者 GitHub URL。清理后重新构建 SDK release HAR 和 Demo HAP 成功，25 项主机测试通过，OHPM prepublish 通过；已提交 OHPM，个人中心显示 `com.offline.demo@0.1.2` 审核中。
-
-本次只调整发布元数据、版本号与文档；下列独立 HAR 消费及真机记录来自 0.1.1，0.1.2 未重复真机验收。
-
-## 0.1.1 验证记录
-
-验证日期：2026-09-18。
-
-| 检查 | 结果 |
-| --- | --- |
-| Node 24 + TypeScript 5.8.3，`npm ci && npm test` | 25 项主机测试通过 |
-| SDK release HAR | DevEco / Hvigor 构建通过 |
-| Demo 源码依赖构建 | ArkTS 检查和 unsigned HAP 构建通过 |
-| 独立 HAR 消费工程 | 移除 SDK 源码目录，改用生成的 HAR，Demo 完整构建通过 |
-| OHPM `prepublish` | 包结构预检通过；未上传中心仓 |
-| 真机 debug 签名安装与启动 | 个人团队 debug 签名；Mate 60 Pro / HarmonyOS 6.1.1，hdc 安装和 DevEco 启动成功 |
-| 真机完整离线交互 | 尚未完成整套验收，继续按 docs/DEMO.md 检查离线页面、重放和失败重试 |
-
-主机测试使用真实 ZIP 元数据解析、文件操作、哈希、取消和状态逻辑，模拟 Harmony ZIP、RCP、TaskPool 和 UI 装饰器的系统边界。测试通过不等同于官方 ZIP 解压或 ArkWeb 在真机上已运行。
-
-构建环境为 DevEco Studio 26.0.0.821、HarmonyOS SDK 26，最低兼容 API 12。编译保留系统 API 异常提示及 SDK 系统能力提醒；Hvigor 对 0.x 模块版本有版本规则警告，OHPM prepublish 接受 0.1.1。HAR 为开源源码包，prepublish 的源码提示符合预期。公共工程不包含个人 signingConfig，发布附件中的 unsigned HAP 不能直接安装到真机；本机通过个人调试签名生成 signed HAP 并安装启动成功。
-
-发布验收记录不包含商业宿主项目的签名、私有资源、业务域名或设备凭据。
+Historical 0.1.x/0.2.0 results apply to their own APIs and artifacts. Private signing inputs, accounts, device identifiers, local evidence and host-specific resources are not part of the public package.

@@ -4,16 +4,15 @@ import { OfflineError } from './OfflineTypes';
 
 // Metadata inspection only. Decompression is always performed by the system zlib API.
 // Ordinary single-volume ZIP (stored/deflate, UTF-8 names); ZIP64/encrypted archives are not accepted.
-export const MAX_ZIP_BYTES: number = 64 * 1024 * 1024;
-export const MAX_FILE_BYTES: number = 64 * 1024 * 1024;
-export const MAX_EXPANDED_BYTES: number = 256 * 1024 * 1024;
-export const MAX_ENTRIES: number = 10000;
 
 export interface ZipEntry {
   name: string;
   directory: boolean;
   size: number;
   crc: number;
+  method: number;
+  dataOffset: number;
+  packedSize: number;
   offset: number;
   end: number;
 }
@@ -60,7 +59,7 @@ export function inspectZip(path: string, checkCancelled: () => void): ZipEntry[]
   const file = fs.openSync(path, fs.OpenMode.READ_ONLY | fs.OpenMode.NOFOLLOW);
   try {
     const size = fs.statSync(file.fd).size;
-    archiveCheck(size >= 22 && size <= MAX_ZIP_BYTES, 'SIZE_LIMIT');
+    archiveCheck(size >= 22);
     const tailStart = Math.max(0, size - 65557);
     const tail = bytesAt(file.fd, tailStart, size - tailStart, size);
     let end = tail.byteLength - 22;
@@ -68,7 +67,7 @@ export function inspectZip(path: string, checkCancelled: () => void): ZipEntry[]
       end + 22 + tail.getUint16(end + 20, true) !== tail.byteLength)) { end--; }
     archiveCheck(end >= 0);
     const count = tail.getUint16(end + 10, true);
-    archiveCheck(count > 0 && count <= MAX_ENTRIES, 'SIZE_LIMIT');
+    archiveCheck(count > 0);
     archiveCheck(tail.getUint16(end + 4, true) === 0 && tail.getUint16(end + 6, true) === 0 &&
       tail.getUint16(end + 8, true) === count, 'UNSUPPORTED_ARCHIVE');
     const centralSize = tail.getUint32(end + 12, true);
@@ -77,7 +76,6 @@ export function inspectZip(path: string, checkCancelled: () => void): ZipEntry[]
     const entries: ZipEntry[] = [];
     const names = new Set<string>();
     let cursor = centralStart;
-    let total = 0;
     const decoder = util.TextDecoder.create('utf-8', { fatal: true, ignoreBOM: true });
     for (let index = 0; index < count; index++) {
       checkCancelled();
@@ -88,12 +86,10 @@ export function inspectZip(path: string, checkCancelled: () => void): ZipEntry[]
       archiveCheck((flags & ~0x080e) === 0 && (method === 0 || method === 8), 'UNSUPPORTED_ARCHIVE');
       const packedSize = header.getUint32(20, true);
       const unpackedSize = header.getUint32(24, true);
-      total += unpackedSize;
-      archiveCheck(unpackedSize <= MAX_FILE_BYTES && total <= MAX_EXPANDED_BYTES, 'SIZE_LIMIT');
       const nameLength = header.getUint16(28, true);
       const extraLength = header.getUint16(30, true);
       const commentLength = header.getUint16(32, true);
-      archiveCheck(nameLength > 0 && nameLength <= 4096 && header.getUint16(34, true) === 0);
+      archiveCheck(nameLength > 0 && header.getUint16(34, true) === 0);
       const rawName = bytesAt(file.fd, cursor + 46, nameLength, size);
       const name = decoder.decodeToString(new Uint8Array(rawName.buffer));
       const directory = name.endsWith('/');
@@ -102,7 +98,6 @@ export function inspectZip(path: string, checkCancelled: () => void): ZipEntry[]
       names.add(normalized);
       const mode = (header.getUint32(38, true) >>> 16) & 0xf000;
       archiveCheck(mode === 0 || (directory ? mode === 0x4000 : mode === 0x8000));
-      archiveCheck(!directory || unpackedSize === 0);
       checkExtra(bytesAt(file.fd, cursor + 46 + nameLength, extraLength, size));
       const offset = header.getUint32(42, true);
       const local = bytesAt(file.fd, offset, 30, size);
@@ -119,7 +114,8 @@ export function inspectZip(path: string, checkCancelled: () => void): ZipEntry[]
         archiveCheck(local.getUint32(14, true) === crc && local.getUint32(18, true) === packedSize &&
           local.getUint32(22, true) === unpackedSize);
       }
-      let entryEnd = offset + 30 + nameLength + localExtra + packedSize;
+      const dataOffset = offset + 30 + nameLength + localExtra;
+      let entryEnd = dataOffset + packedSize;
       if ((flags & 8) !== 0) {
         const signature = bytesAt(file.fd, entryEnd, 4, size).getUint32(0, true);
         const descriptor = bytesAt(file.fd, entryEnd + (signature === 0x08074b50 ? 4 : 0), 12, size);
@@ -128,7 +124,7 @@ export function inspectZip(path: string, checkCancelled: () => void): ZipEntry[]
         entryEnd += signature === 0x08074b50 ? 16 : 12;
       }
       archiveCheck(entryEnd <= centralStart);
-      entries.push({ name: normalized, directory, size: unpackedSize, crc, offset, end: entryEnd });
+      entries.push({ name: normalized, directory, size: unpackedSize, crc, method, dataOffset, packedSize, offset, end: entryEnd });
       cursor += 46 + nameLength + extraLength + commentLength;
       archiveCheck(cursor <= centralStart + centralSize);
     }

@@ -10,10 +10,12 @@ const assert = require('node:assert/strict');
 const { test, after } = require('node:test');
 const ts = require(process.env.OFFLINE_TEST_TYPESCRIPT ||
   'typescript');
-const source = path.resolve(__dirname, '../src/main/ets');
-const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'harmony-official-zip-'));
+const source = process.env.OFFLINE_TEST_SDK_ETS_ROOT || (process.env.OFFLINE_SDK_ROOT ? path.resolve(process.env.OFFLINE_SDK_ROOT, 'src/main/ets') : path.resolve(__dirname, '../src/main/ets'));
+// 本机 /var 等系统别名不是 App 沙盒根；host fixture 显式取得真实测试目录。
+const temporary = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'harmony-official-zip-'));
 after(() => fs.rmSync(temporary, { recursive: true, force: true }));
 let sequence = 0;
+const systemDateTime = { TimeType: { STARTUP: 0 }, getUptime: () => performance.now() };
 
 function load(name, dependencies = {}) {
   const file = path.join(source, name + '.ets');
@@ -47,7 +49,15 @@ const io = {
   statSync: file => typeof file === 'number' ? fs.fstatSync(file) : fs.statSync(file),
   lstatSync(file) { try { return fs.lstatSync(file); } catch (error) { if (error.code === 'ENOENT') error.code = 13900002; throw error; } },
   listFileSync: file => fs.readdirSync(file),
-  mkdirSync: (file, recursive) => fs.mkdirSync(file, { recursive }),
+  mkdirSync(file, recursive) {
+    // API24实测：recursive不代表目标本身可重复创建；Node会吞掉这类EEXIST。
+    try { fs.lstatSync(file); } catch (error) {
+      if (error.code === 'ENOENT') return fs.mkdirSync(file, { recursive });
+      throw error;
+    }
+    const error = new Error('Harmony mkdir target already exists'); error.code = 13900015; throw error;
+  },
+  fsyncSync: fs.fsyncSync,
   unlinkSync: fs.unlinkSync, rmdirSync: fs.rmdirSync, renameSync: fs.renameSync, accessSync: fs.existsSync
 };
 const types = load('OfflineTypes');
@@ -56,7 +66,7 @@ const inspection = load('ZipInspection', { '@kit.CoreFileKit': { fileIo: io }, '
     const decoder = new TextDecoder(encoding, options);
     return { decodeToString: value => decoder.decode(value) };
   } } } } });
-const files = load('PackageFiles', { '@kit.CoreFileKit': { fileIo: io }, '@kit.BasicServicesKit': {},
+const files = load('PackageFiles', { '@kit.CoreFileKit': { fileIo: io }, '@kit.BasicServicesKit': { systemDateTime },
   './ZipInspection': inspection, './OfflineTypes': types });
 
 // ZIP32 fixture writer: stored or deflate, no reliance on the production metadata inspector.
@@ -93,8 +103,43 @@ function fixture(entries, mutate) {
 }
 function platform(fixture, options = {}) {
   const calls = [];
+  let endedEntries = 0;
   const api = {
     createChecksumSync: () => ({ crc32: async (crc, bytes) => zlib.crc32(new Uint8Array(bytes), crc) }),
+    ReturnStatus: { OK: 0, STREAM_END: 1 }, CompressFlushMode: { NO_FLUSH: 0 },
+    async createZip() {
+      calls.push('createZip');
+      let packed = Buffer.alloc(0), output = Buffer.alloc(0), delivered = 0, ended = false;
+      let totalIn = 0, totalOut = 0, state = { availableIn: 0, availableOut: 0, totalIn: 0, totalOut: 0 };
+      return {
+        async inflateInit2(stream, bits) { assert.equal(bits, -15); return 0; },
+        async getZStream() { return state; },
+        async inflate(stream) {
+          calls.push('inflate'); options.started?.(); if (options.wait) await options.wait;
+          if (options.fail) throw new Error('platform failure');
+          let consumed = 0;
+          if (delivered === output.length && stream.availableIn) {
+            const previous = packed.length;
+            packed = Buffer.concat([packed, Buffer.from(stream.nextIn, 0, stream.availableIn)]);
+            try {
+              const result = zlib.inflateRawSync(packed, { info: true });
+              output = result.buffer; ended = true;
+              consumed = result.engine.bytesWritten - previous;
+            } catch (error) {
+              if (error.code !== 'Z_BUF_ERROR') throw error;
+              output = zlib.inflateRawSync(packed, { finishFlush: zlib.constants.Z_SYNC_FLUSH });
+              consumed = stream.availableIn;
+            }
+          }
+          const produced = Math.min(stream.availableOut, output.length - delivered);
+          new Uint8Array(stream.nextOut).set(output.subarray(delivered, delivered + produced));
+          delivered += produced; totalIn += consumed; totalOut += produced;
+          state = { availableIn: stream.availableIn - consumed, availableOut: stream.availableOut - produced, totalIn, totalOut };
+          return ended && delivered === output.length ? 1 : 0;
+        },
+        async inflateEnd() { calls.push('end'); if (++endedEntries === fixture.entries.filter(entry => !entry.stored).length) options.afterExtract?.(fixture.content); return 0; }
+      };
+    },
     async getOriginalSize() { calls.push('size'); return options.declaredSize ?? fixture.entries.reduce((sum, entry) => sum + Buffer.byteLength(entry.body || ''), 0); },
     async decompressFile(zip, destination) {
       calls.push('extract'); options.started?.();
@@ -115,11 +160,12 @@ function platform(fixture, options = {}) {
 }
 const benign = [{ name: 'dist/' }, { name: 'dist/index.html', body: 'home' }, { name: 'dist/a.js', body: 'hello', stored: true }];
 
-test('ordinary deflate/stored ZIP uses official size and decompression interfaces', async () => {
+test('ordinary deflate/stored ZIP uses native entry streams and physical Android layout', async () => {
   const f = fixture(benign), p = platform(f);
   await p.archive.extractPackage(f.zip, f.content, () => {});
-  assert.deepEqual(p.calls, ['size', 'extract']);
-  assert.equal(files.contentRoot(f.content), f.content + '/dist');
+  assert.deepEqual(p.calls, ['createZip', 'inflate', 'end', 'createZip', 'inflate', 'end']);
+  assert.equal(files.contentRoot(f.content), f.content);
+  assert.equal(fs.readFileSync(f.content + '/a.js', 'utf8'), 'hello');
 });
 test('unsafe ZIP names are rejected before any system extraction', async () => {
   for (const name of ['../escape', '/escape', 'C:/escape', 'a\\b', 'a//b', './file', 'a/../b', 'nul\0name']) {
@@ -142,7 +188,7 @@ test('local/central filename mismatch and overlapping data cannot reach extracti
   const f = fixture([{ name: 'index.html', body: 'home' }], data => { data[30] = 'x'.charCodeAt(0); });
   assert.throws(() => inspection.inspectZip(f.zip, () => {}), /INVALID_ARCHIVE/);
 });
-test('declared per-file and total limits are enforced before extraction', () => {
+test('former per-file and total product limits do not reject metadata', () => {
   for (const count of [1, 5]) {
     const f = fixture(Array.from({ length: count }, (_, i) => ({ name: String(i), body: 'a' })), data => {
       let start = 0;
@@ -153,10 +199,10 @@ test('declared per-file and total limits are enforced before extraction', () => 
         start += 4;
       }
     });
-    assert.throws(() => inspection.inspectZip(f.zip, () => {}), /SIZE_LIMIT/);
+    assert.equal(inspection.inspectZip(f.zip, () => {}).length, count);
   }
 });
-test('archive entry count, split archives and encrypted archives are rejected', () => {
+test('inconsistent archive entry count, split archives and encrypted archives are rejected', () => {
   for (const mutate of [data => data.writeUInt16LE(10001, data.length - 12),
     data => data.writeUInt16LE(1, data.length - 18),
     data => data.writeUInt16LE(1, data.indexOf(Buffer.from('504b0102', 'hex')) + 8)]) {
@@ -168,17 +214,19 @@ test('truncated ZIP is rejected', () => {
   const f = fixture(benign); fs.truncateSync(f.zip, fs.statSync(f.zip).size - 8);
   assert.throws(() => inspection.inspectZip(f.zip, () => {}));
 });
-test('official original-size disagreement rejects before decompression', async () => {
-  const f = fixture(benign), p = platform(f, { declaredSize: 999 });
-  await assert.rejects(p.archive.extractPackage(f.zip, f.content, () => {}), /SIZE_LIMIT/);
-  assert.deepEqual(p.calls, ['size']);
+test('actual stream size disagreement is rejected after native completion', async () => {
+  const f = fixture([{name:'index.html',body:'home'}],data=>{
+    const central=data.indexOf(Buffer.from('504b0102','hex'));data.writeUInt32LE(999,22);data.writeUInt32LE(999,central+24);
+  }), p=platform(f);
+  await assert.rejects(p.archive.extractPackage(f.zip,f.content,()=>{}), /CRC_MISMATCH/);
+  assert.deepEqual(p.calls,['createZip','inflate','end']);
 });
 test('platform decompression errors become explicit installation errors', async () => {
   const f = fixture(benign), p = platform(f, { fail: true });
   await assert.rejects(p.archive.extractPackage(f.zip, f.content, () => {}), /DECOMPRESS_FAILED/);
 });
 test('post-extraction CRC detects same-length corrupt contents', async () => {
-  const f = fixture(benign), p = platform(f, { afterExtract: root => fs.writeFileSync(path.join(root, 'dist/index.html'), 'evil') });
+  const f = fixture(benign), p = platform(f, { afterExtract: root => fs.writeFileSync(path.join(root, 'index.html'), 'evil') });
   await assert.rejects(p.archive.extractPackage(f.zip, f.content, () => {}), /CRC_MISMATCH/);
 });
 test('post-extraction inspection rejects unexpected files and links', async () => {
@@ -205,7 +253,7 @@ test('cancel during official extraction waits, then discards without publication
   const progress = [];
   const signal = new SharedArrayBuffer(4);
   const worker = load('InstallWorker', {
-    '@kit.CoreFileKit': { fileIo: io }, '@kit.BasicServicesKit': {},
+    '@kit.CoreFileKit': { fileIo: io }, '@kit.BasicServicesKit': { systemDateTime },
     '@kit.ArkTS': { url: { URL }, taskpool: { Task: { isCanceled: () => cancelled, sendData: value => progress.push(value) } } },
     '@kit.RemoteCommunicationKit': { rcp: {
       Request: class { constructor(url) { this.url = url; } },
@@ -237,16 +285,16 @@ test('cancel during official extraction waits, then discards without publication
 test('all opened file descriptors are closed', () => { assert.equal(positions.size, 0); });
 
 
-function localWorker(f, progress = []) {
+function localWorker(f, progress = [], fileApi = files) {
   return load('InstallWorker', {
-    '@kit.CoreFileKit': { fileIo: io }, '@kit.BasicServicesKit': {},
+    '@kit.CoreFileKit': { fileIo: io }, '@kit.BasicServicesKit': { systemDateTime },
     '@kit.ArkTS': { url: { URL }, taskpool: { Task: { sendData: value => progress.push(value) } } },
     '@kit.RemoteCommunicationKit': { rcp: { createSession() { throw new Error('Local install must not use network'); } } },
     '@kit.CryptoArchitectureKit': { cryptoFramework: { createMd: () => {
       const hash = crypto.createHash('sha256');
       return { updateSync: ({ data }) => hash.update(data), digestSync: () => ({ data: hash.digest() }) };
     } } },
-    './PackageArchive': platform(f).archive, './PackageFiles': files, './OfflineTypes': types
+    './PackageArchive': platform(f).archive, './PackageFiles': fileApi, './OfflineTypes': types
   });
 }
 function localSpec(f) {
@@ -287,7 +335,7 @@ test('cancelled local install and symlink archive do not publish', async () => {
   const link = path.join(f.root, 'link.zip'); fs.symlinkSync(f.zip, link);
   const linked = await localWorker(f).runInstall(root, spec, false, new SharedArrayBuffer(4), link);
   assert.equal(linked.success, false);
-  assert.deepEqual(fs.readdirSync(root), []);
+  assert.equal(fs.existsSync(root), false); // 删除前拒绝，连根目录也没有创建。
 });
 test('download URLs require standard secure origins unless HTTP is explicitly enabled', () => {
   const worker = localWorker(fixture(benign));
@@ -320,13 +368,13 @@ test('bundled demo ZIP matches the pinned SHA-256 and contains all referenced as
 });
 test('local installation paths leave no file descriptors open', () => { assert.equal(positions.size, 0); });
 
-function installWorker(f, p, progress = []) {
+function installWorker(f, p, progress = [], options = {}) {
   return load('InstallWorker', {
-    '@kit.CoreFileKit': { fileIo: io }, '@kit.BasicServicesKit': {},
+    '@kit.CoreFileKit': { fileIo: io }, '@kit.BasicServicesKit': { systemDateTime: options.clock || systemDateTime },
     '@kit.ArkTS': { url: { URL }, taskpool: { Task: { sendData: value => progress.push(value) } } },
     '@kit.RemoteCommunicationKit': { rcp: {
       Request: class { constructor(url) { this.url = url; } },
-      createSession: () => ({ close() {}, cancel() {}, async fetch(request) {
+      createSession: () => options.session || ({ close() {}, cancel() {}, async fetch(request) {
         const bytes = fs.readFileSync(f.zip);
         request.configuration.tracing.httpEventsHandler.onDataReceive(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length));
         return { statusCode: 200, headers: {} };
@@ -387,6 +435,9 @@ test('cold cleanup preserves current version and unrelated files, removes new an
   files.cleanPackages(root, '100000');
   assert.deepEqual(fs.readdirSync(root).sort(), ['100000', 'unrelated']);
   assert.equal(fs.readFileSync(path.join(outside, 'keep'), 'utf8'), 'safe');
+  files.cleanPackages(root, '100000');
+  assert.deepEqual(fs.readdirSync(root).sort(), ['100000', 'unrelated']);
+  assert.equal(fs.readFileSync(path.join(root, '100000/index.html'), 'utf8'), '100000');
 });
 
 test('same version with a different hash cannot overwrite the existing published directory', async () => {
@@ -411,3 +462,557 @@ test('local ZIP in fixed work paths is rejected without deleting the input', asy
   }
 });
 test('all Android-layout installation descriptors are closed', () => { assert.equal(positions.size, 0); });
+
+test('local ZIP parent symlink alias is rejected before stale work paths are removed', async () => {
+  const f = fixture(benign), spec = localSpec(f), root = path.join(f.root, 'versions');
+  fs.mkdirSync(root);
+  const input = path.join(root, '10000.zip.tmp'); fs.copyFileSync(f.zip, input);
+  const alias = path.join(f.root, 'alias'); fs.symlinkSync(root, alias);
+  const original = fs.readFileSync(input);
+  for (const source of [alias + '/10000.zip.tmp', alias + '/./10000.zip.tmp', alias + '/../versions/10000.zip.tmp']) {
+    const result = await localWorker(f).runInstall(root, spec, false, new SharedArrayBuffer(4), source);
+    assert.equal(result.reason, 'INVALID_SOURCE'); assert.equal(result.requestStarted, false);
+    assert.deepEqual(fs.readFileSync(input), original);
+    assert.deepEqual(fs.readdirSync(root), ['10000.zip.tmp']);
+  }
+});
+test('unsafe root is rejected before input or target paths change', async () => {
+  const f = fixture(benign), real = path.join(f.root, 'real'); fs.mkdirSync(real);
+  const alias = path.join(f.root, 'alias'); fs.symlinkSync(real, alias);
+  fs.writeFileSync(real + '/10000.zip.tmp', 'sentinel');
+  for (const root of [alias, alias + '/..' + '/real', f.root + '/missing/../alias']) {
+    const result = await localWorker(f).runInstall(root, localSpec(f), false, new SharedArrayBuffer(4), f.zip);
+    assert.equal(result.reason, 'UNSAFE_PATH');
+    assert.equal(fs.readFileSync(real + '/10000.zip.tmp', 'utf8'), 'sentinel');
+  }
+});
+test('published directory is a typed fact even when final temporary cleanup fails', async () => {
+  const f = fixture(benign), root = path.join(f.root, 'versions'), spec = localSpec(f);
+  const fileApi = { ...files, removeTree(target) {
+    if (target.endsWith('.zip.tmp') && fs.existsSync(root + '/10000')) throw new Error('cleanup failure');
+    return files.removeTree(target);
+  } };
+  const result = await localWorker(f, [], fileApi).runInstall(root, spec, false, new SharedArrayBuffer(4), f.zip);
+  assert.equal(result.success, false); assert.equal(result.reason, 'CLEANUP');
+  assert.equal(result.factStage, types.InstallFactStage.CLEANUP); assert.equal(result.requestStarted, false);
+  assert.deepEqual(result.publishedRecord, { version: spec.version, sha256: spec.sha256 });
+  assert.equal(fs.readFileSync(result.directory + '/index.html', 'utf8'), 'home');
+});
+test('managed download ports and resource origins retain strict legacy defaults', () => {
+  const worker = localWorker(fixture(benign));
+  for (const value of ['http://example.com:9080/p.zip', 'https://example.com:9443/p.zip', 'https://example.com:0/p.zip']) {
+    assert.equal(worker.validManagedDownloadUrl(value), true); assert.equal(worker.validDownloadUrl(value, true), false);
+  }
+  for (const value of ['https://example.com:65536/p.zip', 'http://u:p@example.com/p.zip', 'ftp://example.com/p.zip', 'https://example.com/p.zip#x']) {
+    assert.equal(worker.validManagedDownloadUrl(value), false);
+  }
+  const api = load('ResourceInterceptor', { '@kit.ArkTS': { url: { URL } }, '@kit.CoreFileKit': { fileIo: io }, './PackageFiles': files });
+  const base = 'http://example.com:9080/app/';
+  assert.equal(api.relativeResource(base + 'a.js?q=1#x', base, false, true), 'a.js');
+  assert.equal(api.relativeResource(base + 'a.js', base), '');
+  for (const value of ['http://example.com:9081/app/a.js', 'https://example.com:9080/app/a.js', 'http://other.com:9080/app/a.js']) {
+    assert.equal(api.relativeResource(value, base, true, true), '');
+  }
+  assert.equal(api.relativeResource('http://example.com/app/a.js', 'https://example.com/app/', true, true), 'a.js');
+});
+test('empty resources close undelivered FD and normal resource FD remains open for Web', () => {
+  const root = path.join(temporary, 'fd-root'); fs.mkdirSync(root);
+  fs.writeFileSync(root + '/empty.js', ''); fs.writeFileSync(root + '/ok.js', 'ok');
+  const api = load('ResourceInterceptor', { '@kit.ArkTS': { url: { URL } }, '@kit.CoreFileKit': { fileIo: io }, './PackageFiles': files });
+  const interceptor = new api.ResourceInterceptor(root, 'http://example.com:9080/app/', false, true);
+  assert.equal(interceptor.open('http://example.com:9080/app/empty.js', 'GET', false), undefined);
+  assert.equal(positions.size, 0);
+  const local = interceptor.open('http://example.com:9080/app/ok.js', 'GET', false);
+  assert.equal(local.size, 2); assert.equal(positions.has(local.fd), true);
+  io.closeSync(local.fd); // host double 模拟 system Web 接管后的关闭责任。
+});
+test('download total facts do not invent known progress for absent or invalid totals', async () => {
+  for (const total of [undefined, 0, NaN, Infinity, -1]) {
+    const f = fixture(benign), progress = [], bytes = fs.readFileSync(f.zip);
+    const session = { close() {}, cancel() {}, async fetch(request) {
+      const events = request.configuration.tracing.httpEventsHandler;
+      if (total !== undefined) events.onDownloadProgress(total, bytes.length);
+      events.onDataReceive(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length));
+      return { statusCode: 200, headers: {} };
+    } };
+    const result = await installWorker(f, platform(f), progress, { session }).runInstall(path.join(f.root, 'v'), packageSpec(f), false, new SharedArrayBuffer(4));
+    assert.equal(result.success, true); assert.equal(result.requestStarted, true);
+    for (const value of progress.filter(value => value.stage === 'downloading')) assert.equal(value.downloadTotalKnown, false);
+    assert.equal(progress.findLast(value => value.stage === 'downloading').percent, 100); // 旧末尾100保留，内部事实仍未知。
+  }
+});
+test('valid download callback total accompanies known terminal progress', async () => {
+  const f = fixture(benign), progress = [], bytes = fs.readFileSync(f.zip);
+  const session = { close() {}, cancel() {}, async fetch(request) {
+    const events = request.configuration.tracing.httpEventsHandler;
+    events.onDownloadProgress(bytes.length, bytes.length);
+    events.onDataReceive(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length));
+    return { statusCode: 200, headers: {} };
+  } };
+  const result = await installWorker(f, platform(f), progress, { session }).runInstall(path.join(f.root, 'v'), packageSpec(f), false, new SharedArrayBuffer(4));
+  assert.equal(result.success, true); assert.equal(result.httpStatus, 200);
+  assert.equal(progress.findLast(value => value.stage === 'downloading').downloadTotalKnown, true);
+});
+test('redirects share a monotonic total deadline despite wall-clock jumps', async () => {
+  const f = fixture(benign), requests = [], originalDateNow = Date.now;
+  let mono = 0;
+  const clock = { TimeType: { STARTUP: 0 }, getUptime: () => mono };
+  const session = { close() {}, cancel() {}, async fetch(request) {
+    requests.push(request); mono += 70000;
+    Date.now = () => originalDateNow() + (requests.length === 1 ? 100000000 : -100000000);
+    return { statusCode: 302, headers: { location: '/next.zip' } };
+  } };
+  try {
+    const result = await installWorker(f, platform(f), [], { session, clock }).runInstall(path.join(f.root, 'v'), packageSpec(f), false, new SharedArrayBuffer(4));
+    assert.equal(result.reason, 'TIMEOUT'); assert.equal(result.httpStatus, undefined);
+    assert.deepEqual(requests.map(value => value.configuration.transfer.timeout.transferMs), [120000, 50000]);
+    assert.equal(result.factStage, 'downloading'); assert.equal(positions.size, 0);
+  } finally { Date.now = originalDateNow; }
+});
+test('cross-protocol redirect target is never sent and preserves received HTTP status', async () => {
+  const f = fixture(benign), requests = [];
+  const session = { close() {}, cancel() {}, async fetch(request) {
+    requests.push(request.url); return { statusCode: 307, headers: { location: 'http://example.com:9080/new.zip' } };
+  } };
+  const result = await installWorker(f, platform(f), [], { session }).runInstall(path.join(f.root, 'v'), packageSpec(f), true, new SharedArrayBuffer(4), '', true);
+  assert.equal(result.reason, 'INVALID_URL'); assert.equal(result.httpStatus, 307);
+  assert.equal(requests.length, 1); assert.equal(result.requestStarted, true);
+});
+test('network cancellation waits native settlement before closing download FD', async () => {
+  const f = fixture(benign), signal = new SharedArrayBuffer(4);
+  let release, fetched, settled = false, cancels = 0;
+  const started = new Promise(resolve => { fetched = resolve; });
+  const native = new Promise(resolve => { release = resolve; });
+  const session = { close() {}, cancel() { cancels++; }, async fetch() {
+    fetched(); await native; return { statusCode: 200, headers: {} };
+  } };
+  const installing = installWorker(f, platform(f), [], { session }).runInstall(path.join(f.root, 'v'), packageSpec(f), false, signal).then(value => { settled = true; return value; });
+  await started; Atomics.store(new Int32Array(signal), 0, 1);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(settled, false); assert.equal(positions.size, 1); assert.ok(cancels > 0);
+  release(); assert.equal((await installing).reason, 'CANCELLED'); assert.equal(positions.size, 0);
+});
+
+function installerModule(workerOverride) {
+  let gate;
+  class Task {
+    constructor(fn, ...args) { this.fn = fn; this.args = args; }
+    onReceiveData(callback) { this.progress = callback; }
+  }
+  const taskpool = { Task, async execute(task) {
+    if (gate?.name === task.fn.name && gate.remaining > 0) { gate.remaining--; gate.started(); await gate.wait; }
+    return task.fn(...task.args);
+  } };
+  const worker = { async runInstall(root, spec, allowHttp, signal) {
+    return { success: !Atomics.load(new Int32Array(signal), 0), reason: Atomics.load(new Int32Array(signal), 0) ? 'CANCELLED' : '',
+      stage: 'saving', directory: root + '/' + spec.version, requestStarted: true, factStage: 'publishing' };
+  } };
+  worker.managedArchiveReusable = () => false;
+  worker.runManagedDownload = (root, spec, signal) => worker.runInstall(root, spec, true, signal);
+  worker.runManagedExtract = (root, spec, signal) => worker.runInstall(root, spec, true, signal);
+  const api = load('PackageInstaller', { '@kit.ArkTS': { taskpool }, './InstallWorker': workerOverride || worker, './PackageFiles': files, './OfflineTypes': types });
+  return { api, block(name, remaining = Infinity) {
+    let release, started;
+    const wait = new Promise(resolve => { release = resolve; });
+    const began = new Promise(resolve => { started = resolve; });
+    gate = { name, wait, started, remaining };
+    return { release, began };
+  } };
+}
+test('API24 existing-root mkdir throws but public cleanup and cleanupManaged remain repeatable', async () => {
+  const { api } = installerModule(), root = path.join(temporary, 'api24-repeat-cleanup');
+  const legacy = new api.PackageInstaller();
+  await legacy.cleanup(root, '10000'); // 缺根首次仍须真正创建。
+  assert.equal(fs.lstatSync(root).isDirectory(), true);
+  assert.throws(() => io.mkdirSync(root, true), error => error.code === 13900015);
+  fs.mkdirSync(root + '/10000'); fs.writeFileSync(root + '/10000/index.html', 'active A');
+  fs.writeFileSync(root + '/unrelated', 'host-owned');
+  fs.mkdirSync(root + '/10001_temp'); fs.writeFileSync(root + '/10001_temp/partial', 'stale');
+  await legacy.cleanup(root, '10000'); await legacy.cleanup(root, '10000');
+  const owner = await api.claimManagedRoot(root);
+  fs.writeFileSync(root + '/10001.zip.tmp', 'stale zip');
+  await owner.cleanupManaged(root, 10000); await owner.cleanupManaged(root, 10000);
+  assert.deepEqual(fs.readdirSync(root).sort(), ['10000', 'unrelated']);
+  assert.equal(fs.readFileSync(root + '/10000/index.html', 'utf8'), 'active A');
+  assert.equal(fs.readFileSync(root + '/unrelated', 'utf8'), 'host-owned');
+});
+
+test('API24 existing-root cold public startup reaches provider and binds persisted A across fresh process registries', async () => {
+  const root = path.join(temporary, 'api24-cold-root'), active = { version: 10000, sha256: 'a'.repeat(64) };
+  fs.mkdirSync(root + '/10000', { recursive: true }); fs.writeFileSync(root + '/10000/index.html', 'active A');
+  const facts = [{ ...active, stage: 'active' }];
+  // 每轮重载注册表模拟真正冷进程；close不会、也不应让同进程重新认领root。
+  // 存储与Web仍是平台边界，Manager/Session/Installer/PackageFiles均执行真实源码。
+  for (let coldProcess = 0; coldProcess < 2; coldProcess++) {
+    fs.mkdirSync(root + '/10001_temp'); fs.writeFileSync(root + '/10001_temp/partial', 'old partial');
+    const { api } = installerModule(), managedTypes = load('ManagedOfflineTypes'), diagnostics = [], requests = [];
+    const storage = {
+      async load() { return structuredClone(facts); }, async evictInactive() {}
+    };
+    const sessionApi = load('ManagedPackageSession', {
+      './PackageInstaller': api, './InstallWorker': { validManagedDownloadUrl: () => true },
+      './ManagedStorage': { PackageStage: { ACTIVE: 'active', READY: 'ready', DOWNLOADING: 'downloading', DOWNLOADED: 'downloaded' } }, './OfflineTypes': types, './ManagedOfflineTypes': managedTypes
+    });
+    const { ManagedOfflineSdk } = load('ManagedOfflineSdk', {
+      '@kit.AbilityKit': {}, '@kit.BasicServicesKit': { systemDateTime }, './PackageInstaller': api,
+      './ManagedStorage': { ManagedStorage: class { constructor() { return storage; } } },
+      './ManagedPackageSession': sessionApi, './ManagedPage': {}, './ManagedOfflineTypes': managedTypes
+    });
+    let providerReached; const providerStarted = new Promise(resolve => { providerReached = resolve; });
+    const sdk = await ManagedOfflineSdk.create({ filesDir: temporary, preferencesDir: temporary + '/preferences' }, {
+      root, configProvider: async request => { requests.push(request.currentVersion); providerReached();
+        return { enabled: true, version: active.version, sha256: active.sha256, url: 'https://fixture.test/package.zip' }; },
+      onDiagnostic: value => diagnostics.push(value)
+    });
+    let deadline;
+    try {
+      sdk.updateConditions({ privacyAccepted: true, foreground: true });
+      assert.equal((await sdk.prepareStartup()).kind, managedTypes.StartupKind.CONTINUE);
+      assert.deepEqual(diagnostics, [], 'ordinary existing directory must not emit INSTALL/CLEANUP');
+      assert.deepEqual(fs.readdirSync(root), ['10000']);
+      assert.equal(sdk.getState().usable, true); assert.equal(sdk.getState().initialFinished, true);
+      await Promise.race([providerStarted, new Promise((_, reject) => {
+        deadline = setTimeout(() => reject(new Error('Cold startup failed to reach provider')), 1000);
+      })]);
+      assert.deepEqual(requests, [10000]);
+      const page = { urls: [], startLoad: () => 1, isLoadCurrent: () => true, canBindUrl: () => true,
+        runScopedTask(callback) { callback(); }, clearResourceCache() {},
+        commitLoad(url, binding) { this.urls.push(url); this.binding = binding; } };
+      const original = 'https://fixture.test/site/index.html?cold=' + coldProcess + '#preserved';
+      assert.equal((await sdk.loadPage(page, original)).offline, true);
+      assert.deepEqual(page.urls, [original]); assert.equal(page.binding.directory, root + '/10000');
+      assert.deepEqual(facts, [{ ...active, stage: 'active' }]); assert.equal(sdk.getState().initialFinished, true);
+      assert.equal(fs.readFileSync(root + '/10000/index.html', 'utf8'), 'active A');
+      assert.deepEqual(diagnostics, []);
+    } finally { clearTimeout(deadline); await sdk.close(); }
+  }
+});
+
+test('cleanup owns the write permit across all instances and root claim is atomic', async () => {
+  const { api, block } = installerModule(), root = path.join(temporary, 'permit-root');
+  const old = new api.PackageInstaller(), second = new api.PackageInstaller();
+  const blocked = block('cleanupTask'), cleaning = old.cleanup(root, ''); await blocked.began;
+  await assert.rejects(old.install(root, { version: 10000, sha256: 'a'.repeat(64), url: 'https://e.com/p' }, () => {}), /ROOT_IN_USE/);
+  await assert.rejects(second.cleanup(root + '/child', ''), /ROOT_IN_USE/);
+  await assert.rejects(api.claimManagedRoot(root), /ROOT_IN_USE/);
+  const observation = await api.observePackage(root, { version: 10000, sha256: 'a'.repeat(64) });
+  assert.deepEqual(observation, { directory: '', exists: false }); // 不等待长写任务。
+  blocked.release(); await cleaning;
+  const claims = await Promise.allSettled([api.claimManagedRoot(root), api.claimManagedRoot(root + '/./')]);
+  assert.equal(claims.filter(result => result.status === 'fulfilled').length, 1);
+  assert.match(claims.find(result => result.status === 'rejected').reason.message, /ROOT_IN_USE/);
+  const owner = claims.find(result => result.status === 'fulfilled').value;
+  await assert.rejects(old.cleanup(root, ''), /ROOT_IN_USE/);
+  await assert.rejects(owner.cleanup(root, ''), /ROOT_IN_USE/); // 同实例旧入口也不是授权入口。
+  await assert.rejects(new api.PackageInstaller().installManaged(root, { version: 10000, sha256: 'a'.repeat(64), url: 'https://e.com/p' }), /ROOT_IN_USE/);
+  await owner.cleanupManaged(root);
+  const installed = await owner.installManaged(root, { version: 10000, sha256: 'a'.repeat(64), url: 'http://e.com:9080/p' });
+  assert.equal(installed.success, true);
+  await assert.rejects(api.claimManagedRoot(root + '/child'), /ROOT_IN_USE/);
+});
+test('root claim rejects state-space overlap and visible parent aliases without deletion', async () => {
+  const { api } = installerModule(), root = path.join(temporary, 'claim-root'); fs.mkdirSync(root);
+  fs.writeFileSync(root + '/sentinel', 'safe');
+  const alias = path.join(temporary, 'claim-alias'); fs.symlinkSync(root, alias);
+  await assert.rejects(api.claimManagedRoot(alias), /UNSAFE_PATH/);
+  await assert.rejects(api.claimManagedRoot(root, root + '/state'), /UNSAFE_PATH/);
+  assert.equal(fs.readFileSync(root + '/sentinel', 'utf8'), 'safe');
+});
+test('readonly observation distinguishes missing, unusable and usable targets', async () => {
+  const { api } = installerModule(), root = path.join(temporary, 'observe-root'), record = { version: 10000, sha256: 'a'.repeat(64) };
+  assert.deepEqual(await api.observePackage(root, record), { directory: '', exists: false });
+  fs.mkdirSync(root + '/10000', { recursive: true });
+  assert.deepEqual(await api.observePackage(root, record), { directory: '', exists: true });
+  fs.writeFileSync(root + '/10000/index.html', 'home');
+  assert.deepEqual(await api.observePackage(root, record), { directory: root + '/10000', exists: true });
+});
+
+test('non-200 responses have typed status and never publish', async () => {
+  for (const statusCode of [204, 206, 404]) {
+    const f = fixture(benign), session = { close() {}, cancel() {}, async fetch() { return { statusCode, headers: {} }; } };
+    const result = await installWorker(f, platform(f), [], { session }).runInstall(path.join(f.root, 'v'), packageSpec(f), false, new SharedArrayBuffer(4));
+    assert.equal(result.reason, 'HTTP_' + statusCode); assert.equal(result.httpStatus, statusCode);
+    assert.equal(result.factStage, 'downloading'); assert.equal(result.requestStarted, true);
+    assert.equal(result.publishedRecord, undefined); assert.equal(result.success, false);
+  }
+});
+test('successful response delivered after total deadline is still a timeout', async () => {
+  const f = fixture(benign), bytes = fs.readFileSync(f.zip); let mono = 0;
+  const clock = { TimeType: { STARTUP: 0 }, getUptime: () => mono };
+  const session = { close() {}, cancel() {}, async fetch(request) {
+    request.configuration.tracing.httpEventsHandler.onDataReceive(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length));
+    mono = 120001; return { statusCode: 200, headers: {} };
+  } };
+  const result = await installWorker(f, platform(f), [], { session, clock }).runInstall(path.join(f.root, 'v'), packageSpec(f), false, new SharedArrayBuffer(4));
+  assert.equal(result.reason, 'TIMEOUT'); assert.equal(result.httpStatus, undefined); assert.equal(result.publishedRecord, undefined);
+});
+test('same-protocol redirects have a maximum of ten followed locations', async () => {
+  const f = fixture(benign); let requests = 0;
+  const session = { close() {}, cancel() {}, async fetch() {
+    requests++; return { statusCode: 302, headers: { location: '/again.zip' } };
+  } };
+  const result = await installWorker(f, platform(f), [], { session }).runInstall(path.join(f.root, 'v'), packageSpec(f), false, new SharedArrayBuffer(4));
+  assert.equal(requests, 11); assert.equal(result.reason, 'TOO_MANY_REDIRECTS'); assert.equal(result.httpStatus, 302);
+});
+test('independent legacy removal handles a file and a leaf symlink without following it', async () => {
+  const { api } = installerModule(), root = path.join(temporary, 'legacy-remove'); fs.mkdirSync(root);
+  fs.writeFileSync(root + '/file.tmp', 'temporary'); fs.writeFileSync(root + '/outside', 'keep');
+  fs.symlinkSync(root + '/outside', root + '/link');
+  const installer = new api.PackageInstaller();
+  await installer.removeUnbound(root + '/file.tmp'); await installer.removeUnbound(root + '/link');
+  assert.equal(fs.existsSync(root + '/file.tmp'), false); assert.equal(fs.existsSync(root + '/link'), false);
+  assert.equal(fs.readFileSync(root + '/outside', 'utf8'), 'keep');
+});
+test('lower-level regression completion leaves no open SDK FD', () => { assert.equal(positions.size, 0); });
+
+
+test('old writer reserves overlapping roots while only its background validation is pending', async () => {
+  const { api, block } = installerModule(), root = path.join(temporary, 'pending-validation-root');
+  const old = new api.PackageInstaller(), other = new api.PackageInstaller();
+  const blocked = block('validateRootTask', 1);
+  const cleaning = old.cleanup(root, ''); await blocked.began;
+  assert.equal(fs.existsSync(root), false); // 背景路径检查挂起，尚无任何写 IO。
+  await assert.rejects(api.claimManagedRoot(root), /ROOT_IN_USE/);
+  await assert.rejects(other.cleanup(root + '/child', ''), /ROOT_IN_USE/);
+  await assert.rejects(other.cleanup(temporary, ''), /ROOT_IN_USE/);
+  assert.equal(fs.existsSync(root), false);
+  blocked.release(); await cleaning;
+  assert.equal(fs.existsSync(root), true);
+  const owner = await api.claimManagedRoot(root);
+  await owner.cleanupManaged(root);
+});
+test('unsafe pending root validation releases only its own reservation for a natural retry', async () => {
+  const { api, block } = installerModule(), root = path.join(temporary, 'failed-validation-root');
+  const outside = path.join(temporary, 'failed-validation-outside'); fs.mkdirSync(outside);
+  fs.writeFileSync(outside + '/sentinel', 'safe'); fs.symlinkSync(outside, root);
+  const blocked = block('validateRootTask', 1), old = new api.PackageInstaller();
+  const cleaning = old.cleanup(root, ''); const rejected = assert.rejects(cleaning, /UNSAFE_PATH/);
+  await blocked.began; assert.equal(fs.readFileSync(outside + '/sentinel', 'utf8'), 'safe');
+  blocked.release(); await rejected;
+  fs.unlinkSync(root); // fixture移除不安全别名；新合法入口须能自然认领同一词法键。
+  const owner = await api.claimManagedRoot(root);
+  await owner.cleanupManaged(root);
+  assert.equal(fs.readFileSync(outside + '/sentinel', 'utf8'), 'safe');
+});
+
+test('manager create rejects original root symlink dot-dot before normalization with real filesystem', async () => {
+  const f = fixture(benign), real = path.join(f.root, 'real'); fs.mkdirSync(real);
+  fs.writeFileSync(real + '/sentinel', 'safe');
+  const alias = path.join(f.root, 'alias'); fs.symlinkSync(real, alias);
+  const managedTypes = load('ManagedOfflineTypes');
+  const { api } = installerModule();
+  const { ManagedOfflineSdk } = load('ManagedOfflineSdk', {
+    '@kit.AbilityKit': {}, '@kit.BasicServicesKit': {}, './PackageInstaller': api,
+    './ManagedStorage': { ManagedStorage: class {} }, './ManagedPackageSession': { ManagedPackageSession: class {} },
+    './ManagedPage': {}, './ManagedOfflineTypes': managedTypes
+  });
+  await assert.rejects(ManagedOfflineSdk.create({ filesDir: f.root, preferencesDir: f.root + '/state' }, {
+    root: alias + '/../real', configProvider: async () => ({ enabled: false })
+  }), /UNSAFE_PATH/);
+  assert.equal(fs.readFileSync(real + '/sentinel', 'utf8'), 'safe');
+});
+
+test('background entry observation rejects open failure and closes FD on read failure', async () => {
+  const { api } = installerModule(), f = fixture(benign), root = path.join(f.root, 'versions');
+  const target = root + '/10000'; fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(target + '/index.html', 'readable on disk');
+  const originalOpen = io.openSync, originalRead = io.readSync, originalClose = io.closeSync;
+  for (const fault of ['open', 'read']) {
+    let opens = 0, closes = 0;
+    io.openSync = (file, flags) => {
+      if (file === target + '/index.html') {
+        opens++; if (fault === 'open') throw new Error('entry open fault');
+      }
+      return originalOpen(file, flags);
+    };
+    io.readSync = () => { throw new Error('entry read fault'); };
+    io.closeSync = file => { closes++; return originalClose(file); };
+    try {
+      assert.equal(files.contentRoot(target), '', fault);
+      assert.deepEqual(await api.observePackage(root, localSpec(f)), { exists: true, directory: '' });
+      assert.equal(opens, 2); assert.equal(closes, fault === 'read' ? 2 : 0);
+      assert.equal(positions.size, 0);
+      assert.equal(fs.readFileSync(target + '/index.html', 'utf8'), 'readable on disk');
+    } finally { io.openSync = originalOpen; io.readSync = originalRead; io.closeSync = originalClose; }
+  }
+});
+test('background entry qualification reads exactly one byte and closes before returning root or dist', () => {
+  const f = fixture(benign), target = f.content;
+  fs.writeFileSync(target + '/index.html', 'home content');
+  const originalRead = io.readSync, readLengths = [];
+  io.readSync = (fd, buffer) => { readLengths.push(buffer.byteLength); return originalRead(fd, buffer); };
+  try {
+    assert.equal(files.contentRoot(target), target);
+    assert.deepEqual(readLengths, [1]); assert.equal(positions.size, 0);
+    fs.writeFileSync(target + '/index.html', ''); fs.mkdirSync(target + '/dist'); fs.writeFileSync(target + '/dist/index.html', 'dist content');
+    readLengths.length = 0;
+    assert.equal(files.contentRoot(target), target + '/dist');
+    assert.deepEqual(readLengths, [1]); assert.equal(positions.size, 0);
+  } finally { io.readSync = originalRead; }
+});
+
+
+for (const operation of ['unlink', 'rmdir']) {
+  test('lifecycle cleanup continues after an ordinary ' + operation + ' failure and preserves kept bytes', () => {
+    const root = fs.mkdtempSync(path.join(temporary, 'lifecycle-ordinary-' + operation + '-'));
+    const outside = fs.mkdtempSync(path.join(temporary, 'lifecycle-sentinel-'));
+    const failed = root + '/01-failed', laterFile = root + '/02-later.zip', laterDirectory = root + '/03-later';
+    const sentinel = outside + '/sentinel', link = root + '/04-link';
+    const active = Buffer.from([0, 1, 2, 255, 42]), zip = Buffer.from('kept downloaded archive');
+    fs.mkdirSync(root + '/10001'); fs.writeFileSync(root + '/10001/index.html', active);
+    fs.writeFileSync(root + '/10002.zip', zip); fs.writeFileSync(sentinel, 'external bytes'); fs.symlinkSync(outside, link);
+    if (operation === 'unlink') { fs.writeFileSync(failed, 'undeletable file'); }
+    else { fs.mkdirSync(failed); fs.writeFileSync(failed + '/child', 'child removed before failed rmdir'); }
+    fs.writeFileSync(laterFile, 'stale ZIP'); fs.mkdirSync(laterDirectory); fs.writeFileSync(laterDirectory + '/child', 'stale contents');
+    const unlink = io.unlinkSync, rmdir = io.rmdirSync, list = io.listFileSync;
+    const attempted = []; let failures = 0, failure;
+    io.listFileSync = target => list(target).sort(); // Make the failing child the first real traversal entry.
+    io.unlinkSync = target => {
+      attempted.push(['unlink', target]);
+      if (operation === 'unlink' && target === failed) { failures++; const error = new Error('Injected ordinary unlink failure'); error.code = 'EACCES'; throw error; }
+      return unlink(target);
+    };
+    io.rmdirSync = target => {
+      attempted.push(['rmdir', target]);
+      if (operation === 'rmdir' && target === failed) { failures++; const error = new Error('Injected ordinary rmdir failure'); error.code = 'EACCES'; throw error; }
+      return rmdir(target);
+    };
+    try { files.cleanLifecyclePackages(root, ['10001', '10002.zip']); }
+    catch (error) { failure = error; }
+    finally { io.unlinkSync = unlink; io.rmdirSync = rmdir; io.listFileSync = list; }
+    // The RED assertion must show a later actual file was left behind, not merely an exception mismatch.
+    assert.equal(fs.existsSync(laterFile), false, 'a later file must be removed after an earlier child deletion fails');
+    assert.equal(fs.existsSync(laterDirectory), false, 'a later directory must also be removed');
+    assert.equal(fs.existsSync(link), false, 'the leaf symlink itself is removed');
+    assert.equal(failures, 1); assert.equal(fs.existsSync(failed), true); assert.equal(failure, undefined);
+    assert.ok(attempted.some(([kind, target]) => kind === 'unlink' && target === laterFile));
+    assert.ok(attempted.some(([kind, target]) => kind === 'rmdir' && target === laterDirectory));
+    assert.ok(attempted.some(([kind, target]) => kind === 'unlink' && target === link));
+    assert.equal(attempted.some(([, target]) => target.startsWith(outside + '/')), false);
+    assert.deepEqual(fs.readFileSync(root + '/10001/index.html'), active);
+    assert.deepEqual(fs.readFileSync(root + '/10002.zip'), zip);
+    assert.equal(fs.readFileSync(sentinel, 'utf8'), 'external bytes');
+    assert.equal(attempted.some(([, target]) => target === root + '/10002.zip' || target.startsWith(root + '/10001/')), false);
+  });
+}
+
+test('lifecycle cleanup propagates the exact cancellation error instead of continuing deletion', () => {
+  const root = fs.mkdtempSync(path.join(temporary, 'lifecycle-cancel-error-'));
+  const first = root + '/01-cancel', later = root + '/02-later';
+  fs.writeFileSync(first, 'first'); fs.writeFileSync(later, 'later'); fs.mkdirSync(root + '/10001');
+  fs.writeFileSync(root + '/10001/index.html', 'active');
+  const cancellation = new types.OfflineError('CANCELLED'), unlink = io.unlinkSync, list = io.listFileSync;
+  const attempted = [];
+  io.listFileSync = target => list(target).sort();
+  io.unlinkSync = target => { attempted.push(target); if (target === first) { throw cancellation; } return unlink(target); };
+  try { assert.throws(() => files.cleanLifecyclePackages(root, ['10001']), error => error === cancellation); }
+  finally { io.unlinkSync = unlink; io.listFileSync = list; }
+  assert.deepEqual(attempted, [first]);
+  assert.equal(fs.readFileSync(first, 'utf8'), 'first'); assert.equal(fs.readFileSync(later, 'utf8'), 'later');
+  assert.equal(fs.readFileSync(root + '/10001/index.html', 'utf8'), 'active');
+});
+
+test('lifecycle cleanup validates its root before deleting through aliases or non-directory roots', () => {
+  const root = fs.mkdtempSync(path.join(temporary, 'lifecycle-root-check-'));
+  const alias = root + '/alias', directory = root + '/real', ordinaryFile = root + '/file';
+  fs.mkdirSync(directory); fs.writeFileSync(directory + '/sentinel', 'safe directory');
+  fs.writeFileSync(ordinaryFile, 'safe file'); fs.symlinkSync(directory, alias);
+  for (const unsafe of [alias, alias + '/..', ordinaryFile]) {
+    assert.throws(() => files.cleanLifecyclePackages(unsafe, []), error => error instanceof types.OfflineError && error.reason === 'UNSAFE_PATH');
+    assert.equal(fs.readFileSync(directory + '/sentinel', 'utf8'), 'safe directory');
+    assert.equal(fs.readFileSync(ordinaryFile, 'utf8'), 'safe file');
+    assert.equal(fs.lstatSync(alias).isSymbolicLink(), true);
+  }
+});
+
+test('lifecycle cleanup retains its existing task-entry cancellation checkpoint and releases its writer', async () => {
+  const { api, block } = installerModule(), root = fs.mkdtempSync(path.join(temporary, 'lifecycle-task-cancel-'));
+  fs.mkdirSync(root + '/10001'); fs.writeFileSync(root + '/10001/index.html', 'active'); fs.writeFileSync(root + '/stale.zip', 'stale');
+  const owner = await api.claimManagedRoot(root), blocked = block('lifecycleCleanupTask', 1);
+  const work = owner.cleanupLifecycle(root, ['10001']);
+  const rejected = assert.rejects(work, error => error instanceof types.OfflineError && error.reason === 'CANCELLED');
+  await blocked.began; owner.cancel(); blocked.release(); await rejected;
+  assert.equal(fs.readFileSync(root + '/stale.zip', 'utf8'), 'stale');
+  assert.equal(fs.readFileSync(root + '/10001/index.html', 'utf8'), 'active');
+  await owner.cleanupLifecycle(root, ['10001']);
+  assert.equal(fs.existsSync(root + '/stale.zip'), false);
+  assert.equal(fs.readFileSync(root + '/10001/index.html', 'utf8'), 'active');
+});
+
+
+// Current Android-boundary regressions. Real input bytes/files; the native inflater is a host facade.
+test('android boundary pinned actual directory body is rejected and empty directory is accepted', async () => {
+  const pinned = path.resolve(__dirname, './fixtures/directory-nonempty.zip');
+  const bytes = fs.readFileSync(pinned);
+  assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), '0c838ccfc64080fe99ff4d84c0cdf08cb4a241d29c6b9e226a5ea9c527aae9e4');
+  const entries = [{name:'dist/index.html',body:'home'}, {name:'dist/assets/'}];
+  const bad = fixture(entries); fs.writeFileSync(bad.zip, bytes);
+  // Historical whole-file boundary suppresses directory bodies and trusts declared size: reproduce it faithfully.
+  const declared = (() => { let size = 0; for (let at = 0; (at = bytes.indexOf(Buffer.from('504b0102','hex'), at)) >= 0; at += 4) size += bytes.readUInt32LE(at + 24); return size; })();
+  const p = platform(bad, {declaredSize:declared});
+  // Use actual archived index contents in the old facade so RED reaches the missing body guard.
+  const first = bytes.indexOf(Buffer.from('504b0102','hex'));
+  const off = bytes.readUInt32LE(first + 42), start = off + 30 + bytes.readUInt16LE(off + 26) + bytes.readUInt16LE(off + 28);
+  entries[0].body = zlib.inflateRawSync(bytes.subarray(start, start + bytes.readUInt32LE(first + 20)));
+  await assert.rejects(p.archive.extractPackage(bad.zip, bad.content, () => {}), /INVALID_ARCHIVE/);
+  const good = fixture([{name:'dist/'},{name:'dist/index.html',body:'home'},{name:'dist/assets/'}]);
+  await platform(good).archive.extractPackage(good.zip, good.content, () => {});
+  assert.equal(fs.readFileSync(good.content + '/index.html','utf8'),'home');
+  assert.equal(fs.lstatSync(good.content + '/assets').isDirectory(),true);
+});
+test('android boundary root entry wins and dist only output is physically normalized', async () => {
+  const root = fixture([{name:'dist/index.html',body:'nested'}, {name:'index.html',body:'root'}, {name:'shared.js',body:'shared'}]);
+  await platform(root).archive.extractPackage(root.zip,root.content,()=>{});
+  assert.equal(fs.readFileSync(root.content+'/index.html','utf8'),'root');
+  assert.equal(fs.readFileSync(root.content+'/dist/index.html','utf8'),'nested');
+  const dist = fixture([{name:'dist/',body:'discard container'}, {name:'outside/',body:'discard directory'},
+    {name:'outside.txt',body:'discard file'}, {name:'dist/index.html',body:'home'}, {name:'dist/assets/a.js',body:'resource'}]);
+  await platform(dist).archive.extractPackage(dist.zip,dist.content,()=>{});
+  assert.equal(fs.readFileSync(dist.content+'/index.html','utf8'),'home');
+  assert.equal(fs.readFileSync(dist.content+'/assets/a.js','utf8'),'resource');
+  assert.deepEqual(fs.readdirSync(dist.content).sort(),['assets','index.html']);
+  const empty=fixture([{name:'index.html',body:''},{name:'dist/index.html',body:'nested'}]);
+  await assert.rejects(platform(empty).archive.extractPackage(empty.zip,empty.content,()=>{}),/MISSING_ENTRY/);
+  const versions=path.join(empty.root,'versions');fs.mkdirSync(versions);fs.mkdirSync(versions+'/10001');fs.writeFileSync(versions+'/10001/index.html','in use A');
+  const spec=packageSpec(empty);fs.copyFileSync(empty.zip,versions+'/'+spec.version+'.zip');
+  const result=await installWorker(empty,platform(empty)).runManagedExtract(versions,spec,new SharedArrayBuffer(4));
+  assert.equal(result.success,false);assert.equal(result.reason,'MISSING_ENTRY');
+  assert.equal(fs.existsSync(versions+'/'+spec.version),false);
+  assert.equal(fs.readFileSync(versions+'/10001/index.html','utf8'),'in use A');
+});
+test('android boundary metadata accepts former size count and name thresholds', () => {
+  const many = fixture([{name:'index.html',body:'home'},...Array.from({length:10000},(_,i)=>({name:'f'+i,body:''}))]);
+  assert.equal(inspection.inspectZip(many.zip,()=>{}).length,10001);
+  const large = fixture([{name:'index.html',body:'a'}],data=>{
+    const central=data.indexOf(Buffer.from('504b0102','hex')); data.writeUInt32LE(256*1024*1024+1,central+24); data.writeUInt32LE(256*1024*1024+1,22);
+  });
+  assert.equal(inspection.inspectZip(large.zip,()=>{})[0].size,256*1024*1024+1);
+  assert.equal(inspection.inspectZip(fixture([{name:'a'.repeat(4097),body:''}]).zip,()=>{}).length,1);
+});
+test('android boundary cancellation between top level cleanup items stops the next actual deletion', () => {
+  const root=path.join(temporary,'cancel-between-items'); fs.mkdirSync(root);
+  fs.writeFileSync(root+'/a','old');fs.writeFileSync(root+'/b','later');fs.mkdirSync(root+'/keep');fs.writeFileSync(root+'/keep/index.html','active');
+  const originalList=io.listFileSync,originalUnlink=io.unlinkSync;let cancelled=false,attempts=[];
+  io.listFileSync=file=>file===root?['a','b','keep']:originalList(file);
+  io.unlinkSync=file=>{attempts.push(file);originalUnlink(file);if(file===root+'/a')cancelled=true;};
+  try{assert.throws(()=>files.cleanLifecyclePackages(root,['keep'],()=>{if(cancelled)throw new types.OfflineError('CANCELLED');}),/CANCELLED/);}
+  finally{io.listFileSync=originalList;io.unlinkSync=originalUnlink;}
+  assert.deepEqual(attempts,[root+'/a']);assert.equal(fs.readFileSync(root+'/b','utf8'),'later');assert.equal(fs.readFileSync(root+'/keep/index.html','utf8'),'active');
+});
+
+test('android boundary real stored ZIP above former transfer and file limit completes Local and Remote', async () => {
+  const f=fixture([{name:'index.html',body:Buffer.alloc(64*1024*1024+1,65),stored:true}]);
+  assert.ok(fs.statSync(f.zip).size>64*1024*1024);
+  for(const local of [true,false]){
+    const root=path.join(f.root,local?'large-local':'large-remote'), worker=installWorker(f,platform(f));
+    fs.mkdirSync(root);
+    const spec={...packageSpec(f),...(local?{localArchive:f.zip}:{})};
+    const downloaded=await worker.runManagedDownload(root,spec,new SharedArrayBuffer(4));
+    assert.equal(downloaded.success,true,downloaded.reason);
+    const extracted=await worker.runManagedExtract(root,spec,new SharedArrayBuffer(4));
+    assert.equal(extracted.success,true,extracted.reason);
+    assert.equal(fs.statSync(root+'/'+spec.version+'/index.html').size,64*1024*1024+1);
+    assert.equal(fs.existsSync(root+'/'+spec.version+'/dist'),false);
+  }
+  assert.equal(positions.size,0);
+});

@@ -1,33 +1,23 @@
 import { common } from '@kit.AbilityKit';
 import { webview } from '@kit.ArkWeb';
-import { fileIo as fs } from '@kit.CoreFileKit';
-import { ResourceInterceptor } from 'com.offline.tool';
-import { DEMO_ORIGIN } from '../data/DemoConfig';
+import { ArkWebPage, OfflineCancellation } from 'com.offline.tool';
+import { DEMO_ORIGIN, DEMO_PAGE_URL } from '../data/DemoConfig';
+import { DemoOffline } from '../data/DemoOffline';
 import { SplashViewModel } from '../viewmodel/SplashViewModel';
 
 @Entry
 @Component
 struct Index {
   @State model: SplashViewModel = new SplashViewModel();
-
   aboutToAppear(): void {
     this.model.attach(this.getUIContext().getHostContext() as common.UIAbilityContext);
-    this.model.start();
+    if (DemoOffline.privacyAccepted) { this.model.start(); }
   }
   aboutToDisappear(): void { this.model.dispose(); }
-
   build() {
     Column() {
-      if (this.model.showWeb) {
-        OfflinePage({ directory: this.model.directory })
-          .layoutWeight(1)
-        Row({ space: 12 }) {
-          Button('重放启动').onClick(() => this.model.replay(false))
-          Button('模拟失败').onClick(() => this.model.replay(true))
-        }.padding(16).width('100%').justifyContent(FlexAlign.Center)
-      } else {
-        SplashContent({ model: this.model }).layoutWeight(1)
-      }
+      if (this.model.showWeb) { OfflinePage().layoutWeight(1) }
+      else { SplashContent({ model: this.model }).layoutWeight(1) }
     }.width('100%').height('100%').backgroundColor('#FFF9F4')
   }
 }
@@ -35,7 +25,6 @@ struct Index {
 @Component
 struct SplashContent {
   @ObjectLink model: SplashViewModel;
-
   build() {
     Column() {
       Column({ space: 20 }) {
@@ -45,67 +34,77 @@ struct SplashContent {
         Text('HarmonyOS 离线资源示例').fontSize(14).fontColor('#8A8077')
       }.layoutWeight(1).width('100%').justifyContent(FlexAlign.Center)
       Column({ space: 12 }) {
-        if (this.model.failed) {
-          Text(this.model.text).fontSize(12).fontColor('#777777').width('100%').textAlign(TextAlign.Center)
-          Button('重试', { type: ButtonType.Normal }).width(96).height(48)
-            .fontColor('#E56E46').backgroundColor(Color.Transparent).fontSize(14)
-            .onClick(() => this.model.start())
+        if (this.model.needsConsent) {
+          Text('同意示例隐私说明后开始启动准备。').fontSize(12).fontColor('#777777')
+          Button('同意并开始').onClick(() => this.model.acceptPrivacy())
         } else {
           Row() {
-            Text(this.model.text).fontSize(12).fontColor('#777777').layoutWeight(1).textAlign(TextAlign.Start)
-            if (this.model.percent >= 0 && !this.model.ready) {
+            Text(this.model.text).fontSize(12).fontColor('#777777').layoutWeight(1)
+            if (this.model.showProgress && this.model.percent >= 0) {
               Text(this.model.percent + '%').fontSize(13).fontColor('#777777')
             }
           }.width('100%')
-          if (this.model.ready || this.model.percent >= 0) {
-            Progress({ value: this.model.ready ? 100 : this.model.percent, total: 100, type: ProgressType.Linear })
-              .width('100%').color('#E56E46').backgroundColor('#F1E5DC').style({ strokeWidth: 3 })
-          } else {
-            // Indeterminate: local copy, hashing and official ZIP extraction have no true percentage.
-            Progress({ value: 100, total: 100, type: ProgressType.Linear })
-              .width('100%').color('#E56E46').backgroundColor('#F1E5DC')
-              .style({ strokeWidth: 3, enableScanEffect: true })
+          if (this.model.showProgress) {
+            if (this.model.percent >= 0) {
+              Progress({ value: this.model.percent, total: 100, type: ProgressType.Linear })
+                .width('100%').color('#E56E46').backgroundColor('#F1E5DC').style({ strokeWidth: 3 })
+            } else {
+              // 无真实下载/解压比例时显示不定进度，不把扫描动画当成完成比例。
+              Progress({ value: 100, total: 100, type: ProgressType.Linear })
+                .width('100%').color('#E56E46').backgroundColor('#F1E5DC')
+                .style({ strokeWidth: 3, enableScanEffect: true })
+            }
           }
-          if (this.model.ready) {
-            Button('进入离线页面', { type: ButtonType.Normal }).height(48)
-              .fontColor('#E56E46').backgroundColor(Color.Transparent).fontSize(14)
-              .onClick(() => { this.model.showWeb = true; })
+          if (this.model.failed || this.model.deferred) {
+            Button('重试').onClick(() => this.model.start())
           }
+          if (this.model.ready) { Button('进入页面').onClick(() => this.model.enterPage()) }
         }
-      }.width('100%').height(112).justifyContent(FlexAlign.Center)
+      }.width('100%').height(144).justifyContent(FlexAlign.Center)
     }.width('100%').height('100%').padding({ left: 28, right: 28, bottom: 28 })
   }
 }
 
+class DemoBridge { ping(): string { return 'harmony-managed-demo'; } }
 @Component
 struct OfflinePage {
-  directory: string = '';
+  @State text: string = '';
   private controller: webview.WebviewController = new webview.WebviewController();
-  private binding?: ResourceInterceptor;
-
-  aboutToAppear(): void { this.binding = new ResourceInterceptor(this.directory, DEMO_ORIGIN); }
-
-  private intercept(request: WebResourceRequest): WebResourceResponse | undefined {
-    const hasRange = request.getRequestHeader().some((header: Header) => header.headerKey.toLowerCase() === 'range');
-    const resource = this.binding?.open(request.getRequestUrl(), request.getRequestMethod(), hasRange);
-    if (!resource) { return undefined; }
-    try {
-      const response = new WebResourceResponse();
-      response.setResponseMimeType(resource.mime);
-      response.setResponseEncoding('UTF-8');
-      response.setResponseCode(200);
-      response.setReasonMessage('OK');
-      response.setResponseHeader([{ headerKey: 'Content-Length', headerValue: resource.size.toString() },
-        { headerKey: 'Cache-Control', headerValue: 'no-store' }]);
-      response.setResponseData(resource.fd); // ArkWeb owns the descriptor after this response is returned.
-      return response;
-    } catch (_) { fs.closeSync(resource.fd); return undefined; }
+  private page?: ArkWebPage;
+  private cancellation: OfflineCancellation = new OfflineCancellation();
+  private loaded: boolean = false;
+  private bridge: DemoBridge = new DemoBridge();
+  private detachCleaner?: () => void;
+  aboutToAppear(): void {
+    this.page = new ArkWebPage(this.getUIContext(), this.controller, {
+      resourceBaseUrl: DEMO_ORIGIN, shareHttpAndHttps: false
+    });
   }
-
+  aboutToDisappear(): void { this.cancellation.cancel(); this.page?.close(); this.detachCleaner?.(); }
+  private async load(): Promise<void> {
+    if (this.loaded || !this.page) { return; }
+    this.loaded = true;
+    try {
+      // Cookie/Bridge先就绪；占位Web关联controller后，manager只加载一次原HTTP(S) URL。
+      await webview.WebCookieManager.configCookie(DEMO_ORIGIN, 'offlineDemo=managed; Path=/');
+      this.cancellation.throwIfCancelled();
+      const manager = await DemoOffline.create(this.getUIContext().getHostContext() as common.UIAbilityContext);
+      await manager.loadPage(this.page, DEMO_PAGE_URL, { cancellation: this.cancellation });
+    } catch (_) { if (!this.cancellation.isCancelled) { this.text = '页面暂不可用，请重新进入。'; } }
+  }
   build() {
-    Web({ src: DEMO_ORIGIN + 'index.html', controller: this.controller })
-      .javaScriptAccess(true)
-      .onInterceptRequest((event) => (event ? this.intercept(event.request) : undefined) as WebResourceResponse)
-      .width('100%').height('100%')
+    Column() {
+      if (this.text) { Text(this.text).fontSize(12).fontColor('#777777') }
+      Web({ src: 'about:blank', controller: this.controller })
+        .javaScriptAccess(true).domStorageAccess(true)
+        .javaScriptProxy({ object: this.bridge, name: 'offlineDemo', methodList: ['ping'], controller: this.controller })
+        .onControllerAttached(() => {
+          this.detachCleaner?.();
+          this.detachCleaner = DemoOffline.registerCacheCleaner(() => this.controller.removeCache(true));
+          this.load();
+        })
+        .onInterceptRequest((event) => (event ? this.page?.intercept(event.request) : undefined) as WebResourceResponse)
+        .width('100%').layoutWeight(1)
+    }.width('100%').height('100%')
   }
 }

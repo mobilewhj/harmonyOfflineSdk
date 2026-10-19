@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+- Add the SDK-owned transactional version/SHA/stage lifecycle, immutable same-version identity, process-fixed in-use package and ready activation on a real cold process.
+- Share first and silent preparation, actual-SHA ZIP reuse, memory-only retry budgets, owner/waiter cancellation and the default five-minute scheduler.
+- Preserve original page origins, fixed page package identity and installation events bounded by actual package processing and confirmed ready persistence.
+- Select the root entry first; dist-only input produces a physical version/index.html. Validate actual selected directory bodies and retain path/duplicate/entry safety without arbitrary capacity or entry-count product caps.
+- Keep API12 as the minimum with runtime testing skipped. API12–17 cache clearing without a Web-associated controller remains unavailable; ZIP-format, platform-resource and 120-second download-deadline limits remain documented.
+- Correct native pooled-connection schema visibility and failed-cursor detection. Isolated API26 development candidates have storage, ZIP, download and selected ArkWeb runtime results; see the validation scope. Host-specific behavior and untested platform versions remain separate.
+
 ## 0.2.0
 
 统一 SDK 标识为 `com.offline.tool`，更新 Demo 和测试标识。iOS 模块改为 OfflineTool，类名前缀改为 OFT。见 [迁移说明](docs/MIGRATION-0.2.0.md)。

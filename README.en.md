@@ -1,38 +1,21 @@
 # Harmony Offline SDK
 
-[中文](README.md)
+[中文](README.md) · [Integration](docs/MANAGED-INTEGRATION.md) · [Demo](docs/DEMO.md) · [Validation](docs/VALIDATION.md)
 
-A standalone ArkTS HAR for HarmonyOS API 12+: official ZIP extraction, SHA-256 verification, TaskPool installation and immutable ArkWeb resource mapping. No native C++ or third-party decompressor.
+A standalone ArkTS HAR, `com.offline.tool`, using official ZIP, SHA-256, TaskPool and ArkWeb APIs. SDK version: `0.3.1`. Compatible API remains 12; the local compiler uses SDK 26.
 
-Open the root directory in DevEco Studio (validated compiler: 26.0.0.821 / SDK 26), sync, select `entry`, configure your own automatic signing and run. The sample installs a bundled ZIP, so even first launch requires no network. Its Splash screen shows real stages, a progress bar, completion and retry. The sample deliberately waits for “进入离线页面” after completion for easy visual inspection. Use “模拟失败” on the offline page to exercise a real hash failure and retry.
+Create one application-level `ManagedOfflineSdk` with your configuration provider. The SDK owns first preparation, versions, the relationalStore lifecycle table, retry budgets, protected directories and the default five-minute silent monitor. Supply privacy and foreground facts, project first-owner progress into UI, then call `loadPage` after Web controller attachment. Original HTTP(S) URL, query/hash and origin are retained. Missing, empty, unsupported or failed local resource lookups synchronously fall back to ArkWeb's network handling.
 
-`offlineSdk` is the reusable library; `entry` owns UI, preferences and activation. The demo is intentionally a fixed-version local sample, not a production update manager. Remote ZIP installation is available through `PackageInstaller.install`; configure a trusted URL and expected hash in your own repository. A trusted expected hash must come from authenticated configuration, not from the downloaded file itself.
+Ordinary offline configuration or preparation failure ends only the offline wait. SDK silent checks handle later retries; the integration does not require a new business notice, dialog or manual-retry gate. Cancellation and DEFERRED remain separate, and original business startup gates still apply.
 
-The published SDK package and import name is `com.offline.tool`; the sample application bundle remains `com.offline.tool.sample`.
+Default integration needs no host store, JSON codec, installer or timer. Managed lifecycle storage is SDK-owned. The legacy keyValueStore type remains exported for source compatibility, but passing it to ManagedOfflineSdk.create is rejected. Do not maintain a parallel host package ledger. Apps still own authentication, navigation, business requests, Cookie and Bridge. See the [complete integration example](docs/MANAGED-INTEGRATION.md) and the compilable `entry` example.
 
-After OHPM review and listing, run `ohpm install com.offline.tool@0.2.0` in the consuming module, or declare `"com.offline.tool": "0.2.0"` in that module's `oh-package.json5` and sync. OHPM downloads the HAR automatically.
+The managed Demo requests a controlled LAN fixture; first installation requires the service. Run `node scripts/serve-demo-fixture.cjs --host 0.0.0.0 --port 8088 --origin http://192.168.1.2:8088/` and use your actual development-machine LAN origin in DemoConfig. The service supplies the reviewed sample ZIP, configuration and origin fallback paths. The bundled ZIP remains available for legacy low-level fixtures.
 
-Alternatively download `com.offline.tool-0.2.0.har` from [GitHub v0.2.0](https://github.com/mobilewhj/harmonyOfflineSdk/releases/tag/v0.2.0), and declare `"com.offline.tool": "file:../libs/com.offline.tool-0.2.0.har"`. Use either the registry or the local HAR dependency. Import from `com.offline.tool` in both cases.
+Use the exact host-module dependency `"com.offline.tool": "0.3.1"` and run `ohpm install --all`. Availability is established by actual OHPM resolution. For offline distribution, use a separately built, SHA-256-verified `file:../libs/com.offline.tool-0.3.1.har` instead. Do not use historical 0.2.0 for managed APIs. The repository Demo uses `file:../offlineSdk` for source development; acceptance consumers have only the final HAR, without an SDK source module. Host bundle identifiers are independent of the SDK package name.
 
-Migrating from `harmony-offline-sdk@0.1.4` or `com.offline.demo@0.1.2`: remove the old dependency and import from `com.offline.tool`. Keep your host application's bundle identifier. Installation behavior is unchanged.
+Run `npm ci && npm test` (Node >=22.15), `python3 scripts/generate-sample.py --check`, and `./scripts/build.sh`. The build uses DevEco Studio from `/Applications/DevEco-Studio.app/Contents` by default (override DEVECO_HOME). Host doubles and successful compilation do not establish real FD ownership, cache clearing, native ZIP content handling, API12 runtime, cold processes or natural five-minute timing. Current evidence is separate from historical device results.
 
-The repository demo uses `file:../offlineSdk` for source development. To run it against the registry package, change that dependency value in `entry/oh-package.json5` to `0.2.0` and sync after the new package is listed.
+Legacy APIs, progress and default source policy remain available on independent roots. Managed roots are exclusive for the process lifetime. The managed root is `filesDir/offline/lifecycle-packages`, with `<version>.zip` and `<version>/`; its database is outside package cleanup. Only numeric ArkData error `14800011` from opening permits one platform `allowRebuild: true` reopen; ordinary IO, permission and schema failures remain failures/diagnostics, never an empty table. Root `index.html` takes precedence; a dist-only entry selects and strips the dist subtree into the physical `<version>/index.html`. Directory entries with a nonempty selected output path must have no actual body bytes; every input still undergoes path and duplicate checks. There are no additional package-size, expanded-total, entry-count or name-length product caps; ZIP-format and platform/resource limits remain.
 
-Run `./scripts/build.sh` to build the HAR and unsigned sample HAP, or `./scripts/package-release.sh` to collect release files and checksums. Set `DEVECO_HOME` for non-default installations. Host tests: Node >= 22.15, `npm ci && npm test`. They mock Harmony platform boundaries; a successful host test/build is not device acceptance.
-
-See [SDK API](offlineSdk/README.md), [demo instructions](docs/DEMO.md), [validation](docs/VALIDATION.md) and [release instructions](docs/RELEASING.md). Apache-2.0.
-
-Since 0.1.4 the root contains `<version>/`, `<version>.zip.tmp` and `<version>_temp/`, matching Android. A ZIP's dist directory is flattened at publication. The demo root is `filesDir/offline/packages`. Hosts choose their own root and must serialize install/cleanup. Previous version-hash caches need reinstallation; cold cleanup can remove them before any pages bind. Local ZIP inputs must be outside the SDK-owned root, including through path aliases.
-
-## Reproduce the demo package
-
-The ZIP is generated locally from the reviewed files in `sample-web/`; the generator accepts no download URL or external archive. Python 3 uses a fixed entry order, timestamp and permissions. It updates the demo SHA-256 together with the ZIP.
-
-```sh
-python3 scripts/generate-sample.py
-python3 scripts/generate-sample.py --check
-```
-
-CI verifies that the committed ZIP and configured hash match the example source. After changing the sample content, increment the demo package version before testing against an existing installation, or clear the demo app's data. Test archives are synthesized locally by the test fixtures. No business web assets or account are required.
-
-[0.2.0 migration / 改名接入说明](docs/MIGRATION-0.2.0.md)
+A host can synchronously call `WebviewController.removeAllCache(true)` on API18+ without a business page. On API12–17 one Web-associated controller is required; no-page clearing remains an open difference. Policy update precedes the cache request and preparation. A target is requested once even on an ordinary cache error, which is diagnostic only; cookies, localStorage, login and Bridge remain untouched. Isolated API26 development candidates have database, ZIP, download and selected ArkWeb runtime results. These results cover their recorded inputs and do not establish every device or host-application behavior. Bound pages keep their fixed version and consult only enabled dynamically. Apache-2.0.

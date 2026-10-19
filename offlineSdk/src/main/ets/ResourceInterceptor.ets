@@ -8,27 +8,35 @@ export interface LocalResource {
   size: number;
 }
 
-export function relativeResource(requestUrl: string, baseUrl: string, allowHttpAndHttps: boolean = false): string {
+export function relativeResource(requestUrl: string, baseUrl: string, allowHttpAndHttps: boolean = false,
+  managedPolicy: boolean = false): string {
   try {
     const base = new url.URL(baseUrl);
     const request = new url.URL(requestUrl);
     if (base.username || base.password || request.username || request.password ||
       base.search || base.hash || !base.pathname.endsWith('/') ||
-      !((base.protocol === 'https:' && (!base.port || base.port === '443')) ||
+      !(managedPolicy ? base.protocol === 'https:' || base.protocol === 'http:' :
+      (base.protocol === 'https:' && (!base.port || base.port === '443')) ||
       (allowHttpAndHttps && base.protocol === 'http:' && (!base.port || base.port === '80'))) ||
       !request.pathname.startsWith(base.pathname)) { return ''; }
-    // Legacy business routes use HTTP even when the configured origin uses HTTPS.
-    // Sharing local files is opt-in and limited to the same hostname and each protocol's default port.
-    if (allowHttpAndHttps) {
+    // 托管默认严格保留 origin；显式跨协议共享只允许两端都是标准端口。
+    if (managedPolicy && request.origin === base.origin) {
+      // 相同非默认端口也合法；URL 解析器已经验证端口格式与范围。
+    } else if (allowHttpAndHttps) {
       if (request.hostname !== base.hostname ||
+        !((base.protocol === 'https:' && (!base.port || base.port === '443')) ||
+        (base.protocol === 'http:' && (!base.port || base.port === '80'))) ||
         !((request.protocol === 'https:' && (!request.port || request.port === '443')) ||
         (request.protocol === 'http:' && (!request.port || request.port === '80')))) { return ''; }
     } else if (request.origin !== base.origin) { return ''; }
-    // Inspect the original path before URL normalization can erase dot segments.
-    const rawPath = requestUrl.replace(/^[a-zA-Z]+:\/\/[^/]+/, '').split(/[?#]/)[0];
-    const decoded = decodeURIComponent(rawPath);
-    if (decoded.includes('\\') || /[\u0000-\u001f\u007f]/.test(decoded) ||
-      decoded.split('/').some((part: string) => part === '.' || part === '..')) { return ''; }
+    // 托管base和请求原路径都检查；URL折叠base点段不能把声明范围扩大到整个origin。
+    const originalUrls: string[] = managedPolicy ? [baseUrl, requestUrl] : [requestUrl];
+    for (let original of originalUrls) {
+      const rawPath = original.replace(/^[a-zA-Z]+:\/\/[^/]+/, '').split(/[?#]/)[0];
+      const decoded = decodeURIComponent(rawPath);
+      if (decoded.includes('\\') || /[\u0000-\u001f\u007f]/.test(decoded) ||
+        decoded.split('/').some((part: string) => part === '.' || part === '..')) { return ''; }
+    }
     let relative = decodeURIComponent(request.pathname.slice(base.pathname.length));
     if (!relative) { relative = 'index.html'; }
     if (relative.startsWith('/') || relative.endsWith('/') || relative.includes('%') ||
@@ -55,20 +63,28 @@ export class ResourceInterceptor {
   private directory: string;
   private baseUrl: string;
   private allowHttpAndHttps: boolean;
-  constructor(directory: string, baseUrl: string, allowHttpAndHttps: boolean = false) {
+  private managedPolicy: boolean;
+  constructor(directory: string, baseUrl: string, allowHttpAndHttps: boolean = false, managedPolicy: boolean = false) {
     this.directory = directory; this.baseUrl = baseUrl; this.allowHttpAndHttps = allowHttpAndHttps;
+    this.managedPolicy = managedPolicy;
   }
 
   open(requestUrl: string, method: string, hasRange: boolean): LocalResource | undefined {
     if (method !== 'GET' || hasRange || !this.directory) { return undefined; }
-    const relative = relativeResource(requestUrl, this.baseUrl, this.allowHttpAndHttps);
+    const relative = relativeResource(requestUrl, this.baseUrl, this.allowHttpAndHttps, this.managedPolicy);
     if (!relative) { return undefined; }
     let file: fs.File | undefined = undefined;
     try {
       const path = regularFilePath(this.directory, relative);
       if (!path) { return undefined; }
       file = fs.openSync(path, fs.OpenMode.READ_ONLY | fs.OpenMode.NOFOLLOW);
-      return { fd: file.fd, mime: mimeType(path), size: fs.statSync(file.fd).size };
+      const stat = fs.statSync(file.fd);
+      if (!stat.isFile() || stat.size <= 0) {
+        fs.closeSync(file);
+        file = undefined;
+        return undefined;
+      }
+      return { fd: file.fd, mime: mimeType(path), size: stat.size };
     } catch (_) {
       if (file) { try { fs.closeSync(file); } catch (_) {} }
       return undefined;

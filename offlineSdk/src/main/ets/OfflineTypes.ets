@@ -5,6 +5,7 @@ export interface PackageRecord {
 
 export interface PackageSpec extends PackageRecord {
   url: string;
+  localArchive?: string;
 }
 
 export enum OfflineStage {
@@ -26,6 +27,34 @@ export interface InstallResult {
   reason: string;
   stage: OfflineStage;
   directory: string;
+}
+
+// 仅托管适配消费这些事实；旧进度和结果签名仍可独立使用。
+export interface ManagedInstallProgress extends OfflineProgress {
+  downloadTotalKnown?: boolean;
+}
+
+export enum InstallFactStage {
+  PREPARING = 'preparing',
+  DOWNLOADING = 'downloading',
+  VERIFYING = 'verifying',
+  EXTRACTING = 'extracting',
+  PUBLISHING = 'publishing',
+  CLEANUP = 'cleanup'
+}
+
+export interface ManagedInstallResult extends InstallResult {
+  requestStarted: boolean;
+  publishedRecord?: PackageRecord;
+  httpStatus?: number;
+  factStage: InstallFactStage;
+  retryAfterMillis?: number;
+  storageWriteFailed?: boolean;
+}
+
+export interface PackageObservation {
+  directory: string;
+  exists: boolean;
 }
 
 export class OfflineError extends Error {

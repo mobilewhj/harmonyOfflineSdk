@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+- Add the SDK-owned transactional version/SHA/stage lifecycle, immutable same-version identity, process-fixed in-use package and ready activation on a real cold process.
+- Share first and silent preparation, actual-SHA ZIP reuse, memory-only retry budgets, owner/waiter cancellation and the default five-minute scheduler.
+- Preserve original page origins, fixed page package identity and installation events bounded by actual package processing and confirmed ready persistence.
+- Select the root entry first; dist-only input produces a physical version/index.html. Validate actual selected directory bodies and retain path/duplicate/entry safety without arbitrary capacity or entry-count product caps.
+- Keep API12 as the minimum with runtime testing skipped. API12–17 cache clearing without a Web-associated controller remains unavailable; ZIP-format, platform-resource and 120-second download-deadline limits remain documented.
+- Correct native pooled-connection schema visibility and failed-cursor detection. Isolated API26 development candidates have storage, ZIP, download and selected ArkWeb runtime results; host-specific behavior and untested platform versions remain separate.
+
 ## 0.2.0
 
 - OHPM 包名与 ArkTS import 统一为 `com.offline.tool`。

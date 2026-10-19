@@ -1,23 +1,30 @@
-# 发布
+# Publishing com.offline.tool
 
-发布主体为 [mobilewhj](https://github.com/mobilewhj)，仓库 [harmonyOfflineSdk](https://github.com/mobilewhj/harmonyOfflineSdk)。使用 GitHub 账号名称和 noreply 提交邮箱，不继承公司 GitLab 身份。
+SDK version: `0.3.1`. Repository: [mobilewhj/harmonyOfflineSdk](https://github.com/mobilewhj/harmonyOfflineSdk). Keep publishing credentials and signing inputs outside the public tree. A local package or version declaration does not assert that OHPM has accepted or served the release.
 
-## GitHub + HAR
+## Source and HAR
 
-1. 更新根目录、SDK、Demo 的版本与 CHANGELOG。检查导出 API 和接入示例。
-2. `npm ci && npm test`。
-3. `./scripts/package-release.sh` 生成 `dist/com.offline.tool-0.2.0.har`、未签名 Demo HAP、SHA256SUMS。
-4. 用 HAR 替换临时验收工程的源码依赖，`ohpm install --all` 后完整编译 Demo。核对 HAR 包内的 README、CHANGELOG、LICENSE、Index.ets，且不含签名/业务配置。
-5. 提交源码并创建 `v0.2.0` 标签；创建 GitHub Release，上传 HAR、未签名 HAP 和 SHA256SUMS。未签名 HAP 用于构建核对，真机请使用源码自行签名运行。
+1. Select the reviewed public source paths and the exact SDK version in offlineSdk/oh-package.json5. Keep both changelog headings at `## 0.3.1`. The source Demo and private host-test tooling have independent versions.
+2. Run checks appropriate to the actual changes, including `python3 scripts/generate-sample.py --check`. Preserve earlier source, resolved-HAR and device results under their original input identities; a documentation change does not require repeating unrelated runtime matrices.
+3. Run `./scripts/package-release.sh` from a clean preparation checkout. It validates metadata/changelog headings, normally resolves dependencies and builds only offlineSdk's release HAR. It creates `dist/release-0.3.1/` with exactly `com.offline.tool-0.3.1.har` and `SHA256SUMS`. Existing output is preserved rather than overwritten.
+4. Review the selected tree and complete HAR, including entrypoints, metadata, README, CHANGELOG, LICENSE and any source maps. Exclude private paths, host resources, identifiers, credentials, build caches and local test evidence. Compare an independent HAR-only consumer with the reviewed package. The [validation scope](VALIDATION.md) distinguishes native observations and remaining platform limits.
 
-## OHPM
+The release package and its attachments contain the SDK HAR and SHA256SUMS. The package script does not collect the source Demo HAP, any host application HAP or private verification application. Those applications are not part of this SDK release archive.
 
-OHPM 使用本机加密密钥手动发布。SDK 的 `author` 必须包含姓名和网址或邮箱；本项目使用 GitHub 作者网址。可先运行 `ohpm prepublish dist/com.offline.tool-0.2.0.har` 做本地包校验。申请可用包名/命名空间后，按照官方文档配置发布账号、公钥和 publish_id，在本机保存加密私钥，最后 `ohpm publish <har>`。账号、私钥和签名文件不得提交 Git。
+## GitHub
 
-官方文档：[HAR 发布](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ide-har-publish)。中心仓包名若需要调整，必须同步 oh-package.json5、Demo import 和文档再构建。
+Check that v0.3.1 is unused. Review the exact commit paths, tree, author/committer and message, then publish that new version without overwriting an existing tag or artifact. Keep the HAR and checksum matched to that source. Historical changes or deletions are separate operations.
 
-## 示例资源检查
+## OHPM and consumers
 
-发布前运行 `python3 scripts/generate-sample.py --check`，确认示例网页、ZIP 与配置摘要一致。需要更新示例时，先修改 `sample-web/`，再运行生成脚本；不要复制其他工程的资源包。测试中的 ZIP 由本地测试夹具生成。
+Use the reviewed HAR for `ohpm prepublish` or `ohpm publish`; keep credential output private. A prepublish check is not publication or download proof. If the exact version is occupied, do not overwrite it or silently change the package identity. See the [official HAR publication guide](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ide-har-publish).
 
-只暂存逐项检查过的文件。自动签名可能修改已跟踪的构建配置；不要暂存本地签名配置、账号、证书路径或凭据。提交前检查暂存区，发布前检查归档内的实际文件。
+After actual registry acceptance, resolve `com.offline.tool: 0.3.1` in a fresh consumer with an isolated dependency cache. Compare all resolved package members to the reviewed release and build from those remote bytes. A pending review or unavailable package remains unavailable; do not substitute a local HAR while calling it a remote result.
+
+Host module declaration:
+
+```json5
+{ "dependencies": { "com.offline.tool": "0.3.1" } }
+```
+
+Run normal `ohpm install --all`, retain the generated locks and verify the actual resolution before the affected host build and smoke checks. Neither SDK package publication nor generic Demo behavior certifies a host's business flow. API12 testing is skipped, and the API12–17 no-associated-page cache limitation remains documented.
